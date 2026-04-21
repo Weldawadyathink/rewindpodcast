@@ -1,10 +1,6 @@
 import { Hono } from 'hono';
 import QRCode from 'qrcode';
-import {
-	buildReplayFeed,
-	parseReplayFeedConfig,
-	type CadenceUnit,
-} from './feed';
+import { buildReplayFeed, parseReplayFeedConfig, type CadenceUnit } from './feed';
 import { PODCAST_APPS } from './podcast-apps';
 
 type FeedFormState = {
@@ -30,7 +26,7 @@ const defaultState: FeedFormState = {
 	releaseTime: '09:00',
 	timeZone: 'America/Los_Angeles',
 	titleTemplate: '{{title}} (Rewind)',
-	descriptionTemplate: 'Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.',
+	descriptionTemplate: 'Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.\n{{description}}',
 };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -42,14 +38,12 @@ app.get('/', (c) => {
 		startDate: requestUrl.searchParams.get('startDate') ?? defaultState.startDate,
 		episodeNumber: '',
 		cadenceCount: requestUrl.searchParams.get('cadenceCount') ?? defaultState.cadenceCount,
-		cadenceUnit:
-			(requestUrl.searchParams.get('cadenceUnit') as CadenceUnit | null) ?? defaultState.cadenceUnit,
+		cadenceUnit: (requestUrl.searchParams.get('cadenceUnit') as CadenceUnit | null) ?? defaultState.cadenceUnit,
 		releaseWeekday: requestUrl.searchParams.get('releaseWeekday') ?? defaultState.releaseWeekday,
 		releaseTime: requestUrl.searchParams.get('releaseTime') ?? defaultState.releaseTime,
 		timeZone: requestUrl.searchParams.get('timeZone') ?? defaultState.timeZone,
 		titleTemplate: requestUrl.searchParams.get('titleTemplate') ?? defaultState.titleTemplate,
-		descriptionTemplate:
-			requestUrl.searchParams.get('descriptionTemplate') ?? defaultState.descriptionTemplate,
+		descriptionTemplate: requestUrl.searchParams.get('descriptionTemplate') ?? defaultState.descriptionTemplate,
 	};
 
 	return c.html(renderHomePage(state, c.req.url));
@@ -571,11 +565,7 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 }
 
 function escapeHtml(value: string): string {
-	return value
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;')
-		.replaceAll('"', '&quot;');
+	return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 
 function buildFeedUrl(requestUrl: URL, query: Record<string, string | undefined>): string {

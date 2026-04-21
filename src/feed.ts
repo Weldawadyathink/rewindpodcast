@@ -56,7 +56,7 @@ type ChannelTemplateContext = {
 
 const DEFAULT_TITLE_TEMPLATE = '{{title}} (Rewind)';
 const DEFAULT_DESCRIPTION_TEMPLATE =
-	'Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.';
+	'Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.\n{{description}}';
 const MAX_FEED_BYTES = 5 * 1024 * 1024;
 const RSS_CONTENT_TYPE = 'application/rss+xml; charset=utf-8';
 const ATOM_CONTENT_TYPE = 'application/atom+xml; charset=utf-8';
