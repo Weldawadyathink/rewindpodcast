@@ -1,0 +1,19 @@
+{
+	"name": "rewindpodcast",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"check": "tsc --noEmit",
+		"cf-typegen": "wrangler types"
+	},
+	"dependencies": {
+		"hono": "^4.10.1"
+	},
+	"devDependencies": {
+		"typescript": "^5.5.2",
+		"wrangler": "^3.101.0"
+	}
+}
