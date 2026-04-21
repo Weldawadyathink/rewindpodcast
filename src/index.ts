@@ -26,7 +26,7 @@ const defaultState: FeedFormState = {
 	releaseTime: '09:00',
 	timeZone: 'America/Los_Angeles',
 	titleTemplate: '{{title}} (Rewind)',
-	descriptionTemplate: 'Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.\n{{description}}',
+	descriptionTemplate: 'RewindPodcast.com feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.\n\n{{description}}',
 };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -423,7 +423,7 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 								<textarea
 									id="descriptionTemplate"
 									name="descriptionTemplate"
-									placeholder="Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}."
+									placeholder="Template for the feed description."
 								></textarea>
 							</label>
 
