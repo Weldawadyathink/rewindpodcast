@@ -329,6 +329,10 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 							That convenience is for the website only and does not need to appear in the final feed URL.
 						</p>
 
+						<p class="help">
+							A later version of this form will include advanced channel-title controls so users can keep the original title, use a default replay template, or provide a custom title.
+						</p>
+
 						<button type="submit">Generate Podcast URL</button>
 					</form>
 				</section>

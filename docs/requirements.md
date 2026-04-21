@@ -9,6 +9,7 @@ The same Worker should also serve an approachable website for non-technical user
 ## Product Goals
 
 - Let a listener subscribe to a replayed version of any public podcast RSS feed.
+- Support podcast feeds broadly, including Atom if real-world podcasts rely on it.
 - Preserve the original episode order exactly.
 - Rewrite only the minimum parts of the feed needed to support the replay experience.
 - Keep the system stateless so a single Cloudflare Worker can serve all users.
@@ -40,6 +41,7 @@ The same Worker should also serve an approachable website for non-technical user
 ### Feed rewriting
 
 - The Worker fetches the source feed.
+- The Worker fetches the source feed on every request.
 - The Worker rewrites episode release dates onto the replay schedule.
 - The Worker removes or suppresses episodes whose replay release date is still in the future.
 - The Worker leaves episode download and enclosure URLs pointing at the original host.
@@ -52,6 +54,7 @@ The same Worker should also serve an approachable website for non-technical user
 - Pass through as much source markup, XML structure, namespaced tags, and formatting as possible.
 - Be best-effort when the input feed contains unusual or imperfect RSS structures.
 - Log warnings or parsing anomalies when the feed is weird, but still try to return a workable feed.
+- If an episode does not have a usable publish date, fall back to feed order rather than failing the request.
 
 ## Technical Direction
 
@@ -68,17 +71,24 @@ The same Worker should also serve an approachable website for non-technical user
 - Explains each setting in plain language.
 - Produces a custom feed URL ready to paste into a podcast app.
 - Supports the website-only "start from episode N" helper flow.
+- Includes an advanced option for channel title templating.
+- Advanced users should be able to choose between a default replay-title template, the untouched original title, or a fully custom title.
 
 ## Open Questions
 
-1. Should the Worker support both RSS 2.0 and Atom feeds, or can v1 target RSS only?
-2. What should happen if the source feed omits `pubDate` or uses inconsistent date fields across episodes?
-3. How should the original release note be injected when an episode description uses HTML, CDATA, plain text, or a namespaced field such as `content:encoded`?
-4. Should the replayed feed rewrite channel-level metadata such as title, description, artwork, and self-link so podcast apps clearly show it is a replay feed?
-5. Should there be a maximum number of source episodes processed per request to keep Worker execution time predictable?
-6. Do we want optional "pause" behavior, where a listener can temporarily stop receiving new replay episodes without changing the feed URL?
-7. How should caching behave for source feeds and generated responses?
-8. Should the UI validate podcast URLs aggressively, or mostly trust input and let the Worker explain failures?
+1. How should the original release note be injected when an episode description uses HTML, CDATA, plain text, or a namespaced field such as `content:encoded`?
+2. Besides title templating, which channel-level metadata should be optionally customizable in v1: description, artwork, author, or self-link?
+3. Should there be a maximum number of source episodes processed per request to keep Worker execution time predictable?
+4. Do we want optional "pause" behavior, where a listener can temporarily stop receiving new replay episodes without changing the feed URL?
+5. Should the UI validate podcast URLs aggressively, or mostly trust input and let the Worker explain failures?
+
+## Decisions Confirmed
+
+- Package manager: `pnpm`
+- Feed format scope: support podcast feeds broadly; include Atom if podcasts in the wild need it
+- Missing or inconsistent episode dates: fall back to feed order
+- Channel title behavior: offer templating by default, with advanced options for original title or fully custom title
+- Source fetching and feed generation: do the work fresh on every request
 
 ## Initial Milestones
 

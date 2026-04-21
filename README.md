@@ -23,8 +23,8 @@ See [docs/requirements.md](./docs/requirements.md) for the working spec.
 ## Local Development
 
 ```bash
-npm install
-npm run cf-typegen
-npm run check
-npm run dev
+pnpm install
+pnpm run cf-typegen
+pnpm run check
+pnpm run dev
 ```
