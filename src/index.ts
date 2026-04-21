@@ -112,8 +112,10 @@ app.get('/feed', async (c) => {
 export default app;
 
 function renderHomePage(state: FeedFormState, requestUrl: string): string {
+	const request = new URL(requestUrl);
 	const escapedState = JSON.stringify(state).replace(/</g, '\\u003c');
-	const exampleUrl = `${new URL(requestUrl).origin}/listen?source=${encodeURIComponent('https://feeds.relay.fm/rd.xml')}&startDate=2026-05-04&cadenceCount=1&cadenceUnit=weeks&releaseWeekday=monday&releaseTime=09:00&timeZone=America%2FLos_Angeles`;
+	const hasExplicitWeekday = request.searchParams.has('releaseWeekday');
+	const exampleUrl = `${request.origin}/listen?source=${encodeURIComponent('https://feeds.relay.fm/rd.xml')}&startDate=2026-05-04&cadenceCount=1&cadenceUnit=weeks&releaseWeekday=monday&releaseTime=09:00&timeZone=America%2FLos_Angeles`;
 
 	return `<!doctype html>
 <html lang="en">
@@ -361,8 +363,8 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 							</label>
 
 							<label>
-								<span>Episode number to treat as newest on that date</span>
-								<input id="episodeNumber" name="episodeNumber" type="number" min="1" step="1" placeholder="Optional" />
+								<span>Release time</span>
+								<input id="releaseTime" name="releaseTime" type="time" value="09:00" required />
 							</label>
 						</div>
 
@@ -381,58 +383,60 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 							</label>
 						</div>
 
-						<div class="field-grid">
-							<label>
-								<span>Release weekday</span>
-								<select id="releaseWeekday" name="releaseWeekday">
-									<option value="monday" selected>Monday</option>
-									<option value="tuesday">Tuesday</option>
-									<option value="wednesday">Wednesday</option>
-									<option value="thursday">Thursday</option>
-									<option value="friday">Friday</option>
-									<option value="saturday">Saturday</option>
-									<option value="sunday">Sunday</option>
-								</select>
-							</label>
-
-							<label>
-								<span>Release time</span>
-								<input id="releaseTime" name="releaseTime" type="time" value="09:00" required />
-							</label>
-						</div>
-
-						<label>
-							<span>Time zone</span>
-							<input id="timeZone" name="timeZone" type="text" value="America/Los_Angeles" required />
-						</label>
-
 						<p class="help">
-							If you enter an episode number, the website will calculate an adjusted start date so that episode becomes the newest available episode on your chosen day.
-							That convenience is for the website only and does not need to appear in the final feed URL.
+							Release weekday defaults to the weekday of your chosen start date. You only need the advanced options if you want to override that or tweak feed metadata.
 						</p>
 
-						<label>
-							<span>Feed title template</span>
-							<input
-								id="titleTemplate"
-								name="titleTemplate"
-								type="text"
-								placeholder="{{title}} (Rewind)"
-							/>
-						</label>
+						<details>
+							<summary>Advanced options</summary>
+							<div class="field-grid" style="margin-top: 16px;">
+								<label>
+									<span>Release weekday</span>
+									<select id="releaseWeekday" name="releaseWeekday">
+										<option value="monday" selected>Monday</option>
+										<option value="tuesday">Tuesday</option>
+										<option value="wednesday">Wednesday</option>
+										<option value="thursday">Thursday</option>
+										<option value="friday">Friday</option>
+										<option value="saturday">Saturday</option>
+										<option value="sunday">Sunday</option>
+									</select>
+								</label>
 
-						<label>
-							<span>Feed description template</span>
-							<textarea
-								id="descriptionTemplate"
-								name="descriptionTemplate"
-								placeholder="Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}."
-							></textarea>
-						</label>
+								<label>
+									<span>Time zone</span>
+									<input id="timeZone" name="timeZone" type="text" value="America/Los_Angeles" required />
+								</label>
+							</div>
 
-						<p class="help">
-							Supported template placeholders include <code>{{title}}</code>, <code>{{description}}</code>, <code>{{cadenceCount}}</code>, <code>{{cadenceUnit}}</code>, <code>{{startDate}}</code>, and <code>{{timeZone}}</code>.
-						</p>
+							<label style="margin-top: 16px;">
+								<span>First episode number to treat as newest on that date</span>
+								<input id="episodeNumber" name="episodeNumber" type="number" min="1" step="1" placeholder="Optional" />
+							</label>
+
+							<label style="margin-top: 16px;">
+								<span>Feed title template</span>
+								<input
+									id="titleTemplate"
+									name="titleTemplate"
+									type="text"
+									placeholder="{{title}} (Rewind)"
+								/>
+							</label>
+
+							<label style="margin-top: 16px;">
+								<span>Feed description template</span>
+								<textarea
+									id="descriptionTemplate"
+									name="descriptionTemplate"
+									placeholder="Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}."
+								></textarea>
+							</label>
+
+							<p class="help">
+								Supported template placeholders include <code>{{title}}</code>, <code>{{description}}</code>, <code>{{cadenceCount}}</code>, <code>{{cadenceUnit}}</code>, <code>{{startDate}}</code>, and <code>{{timeZone}}</code>.
+							</p>
+						</details>
 
 						<button type="submit">Generate Podcast URL</button>
 					</form>
@@ -459,14 +463,32 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 		</main>
 		<script>
 			const initialState = ${escapedState};
+			const hasExplicitWeekday = ${JSON.stringify(hasExplicitWeekday)};
 			const form = document.getElementById('generator-form');
 			const output = document.getElementById('output');
+			const startDateField = document.getElementById('startDate');
+			const releaseWeekdayField = document.getElementById('releaseWeekday');
 			const weekdayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+			let weekdayManuallyChanged = hasExplicitWeekday;
 
 			for (const [key, value] of Object.entries(initialState)) {
 				const field = document.getElementById(key);
 				if (field && value) field.value = value;
 			}
+
+			if (releaseWeekdayField) {
+				releaseWeekdayField.addEventListener('change', () => {
+					weekdayManuallyChanged = true;
+				});
+			}
+
+			if (startDateField) {
+				startDateField.addEventListener('change', () => {
+					syncWeekdayFromStartDate();
+				});
+			}
+
+			syncWeekdayFromStartDate();
 
 			form.addEventListener('submit', (event) => {
 				event.preventDefault();
@@ -530,6 +552,18 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 
 			function toDateString(date) {
 				return date.toISOString().slice(0, 10);
+			}
+
+			function syncWeekdayFromStartDate() {
+				if (weekdayManuallyChanged || !startDateField || !releaseWeekdayField || !startDateField.value) {
+					return;
+				}
+
+				const selectedDate = new Date(startDateField.value + 'T00:00:00');
+				const weekday = weekdayNames[selectedDate.getDay()];
+				if (weekday) {
+					releaseWeekdayField.value = weekday;
+				}
 			}
 		</script>
 	</body>
