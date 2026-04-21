@@ -1,6 +1,10 @@
 import { Hono } from 'hono';
-
-type CadenceUnit = 'days' | 'weeks';
+import {
+	buildReplayFeed,
+	parseReplayFeedConfig,
+	type CadenceUnit,
+	type ChannelTextMode,
+} from './feed';
 
 type FeedFormState = {
 	sourceUrl: string;
@@ -11,6 +15,12 @@ type FeedFormState = {
 	releaseWeekday: string;
 	releaseTime: string;
 	timeZone: string;
+	titleMode: ChannelTextMode;
+	titleTemplate: string;
+	customTitle: string;
+	descriptionMode: ChannelTextMode;
+	descriptionTemplate: string;
+	customDescription: string;
 };
 
 const defaultState: FeedFormState = {
@@ -22,11 +32,43 @@ const defaultState: FeedFormState = {
 	releaseWeekday: 'monday',
 	releaseTime: '09:00',
 	timeZone: 'America/Los_Angeles',
+	titleMode: 'template',
+	titleTemplate: '{{title}} (Rewind)',
+	customTitle: '',
+	descriptionMode: 'template',
+	descriptionTemplate: 'Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.',
+	customDescription: '',
 };
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.get('/', (c) => c.html(renderHomePage(defaultState, c.req.url)));
+app.get('/', (c) => {
+	const requestUrl = new URL(c.req.url);
+	const state: FeedFormState = {
+		sourceUrl: requestUrl.searchParams.get('source') ?? defaultState.sourceUrl,
+		startDate: requestUrl.searchParams.get('startDate') ?? defaultState.startDate,
+		episodeNumber: '',
+		cadenceCount: requestUrl.searchParams.get('cadenceCount') ?? defaultState.cadenceCount,
+		cadenceUnit:
+			(requestUrl.searchParams.get('cadenceUnit') as CadenceUnit | null) ?? defaultState.cadenceUnit,
+		releaseWeekday: requestUrl.searchParams.get('releaseWeekday') ?? defaultState.releaseWeekday,
+		releaseTime: requestUrl.searchParams.get('releaseTime') ?? defaultState.releaseTime,
+		timeZone: requestUrl.searchParams.get('timeZone') ?? defaultState.timeZone,
+		titleMode:
+			(requestUrl.searchParams.get('titleMode') as ChannelTextMode | null) ?? defaultState.titleMode,
+		titleTemplate: requestUrl.searchParams.get('titleTemplate') ?? defaultState.titleTemplate,
+		customTitle: requestUrl.searchParams.get('customTitle') ?? defaultState.customTitle,
+		descriptionMode:
+			(requestUrl.searchParams.get('descriptionMode') as ChannelTextMode | null) ??
+			defaultState.descriptionMode,
+		descriptionTemplate:
+			requestUrl.searchParams.get('descriptionTemplate') ?? defaultState.descriptionTemplate,
+		customDescription:
+			requestUrl.searchParams.get('customDescription') ?? defaultState.customDescription,
+	};
+
+	return c.html(renderHomePage(state, c.req.url));
+});
 
 app.get('/healthz', (c) =>
 	c.json({
@@ -36,28 +78,38 @@ app.get('/healthz', (c) =>
 	}),
 );
 
-app.get('/feed', (c) => {
-	// The feed rewrite pipeline is intentionally not implemented in the initial scaffold.
-	// This endpoint echoes the accepted configuration shape so we can iterate against a stable contract.
-	const params = c.req.query();
+app.get('/feed', async (c) => {
+	try {
+		const config = parseReplayFeedConfig(c.req.query());
+		const result = await buildReplayFeed(config);
 
-	return c.json(
-		{
-			message: 'Feed rewriting is not implemented yet.',
-			status: 'scaffold',
-			acceptedQueryShape: {
-				source: 'https://example.com/feed.xml',
-				startDate: '2026-01-05',
-				cadenceCount: 1,
-				cadenceUnit: 'weeks',
-				releaseWeekday: 'monday',
-				releaseTime: '09:00',
-				timeZone: 'America/Los_Angeles',
+		for (const diagnostic of result.diagnostics) {
+			console.warn(
+				JSON.stringify({
+					diagnostic,
+					kind: result.kind,
+					scope: 'rewindpodcast',
+				}),
+			);
+		}
+
+		c.header('cache-control', 'no-store, max-age=0');
+		return new Response(result.xml, {
+			headers: {
+				'cache-control': 'no-store, max-age=0',
+				'content-type': result.contentType,
 			},
-			received: params,
-		},
-		501,
-	);
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown feed generation error.';
+		console.error(
+			JSON.stringify({
+				error: message,
+				scope: 'rewindpodcast',
+			}),
+		);
+		return c.text(message, 400);
+	}
 });
 
 export default app;
@@ -143,6 +195,7 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 			}
 
 			.hero p,
+			h2,
 			.panel p,
 			label span,
 			.help,
@@ -235,6 +288,29 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				padding-left: 18px;
 			}
 
+			details {
+				padding: 16px 18px;
+				border-radius: 16px;
+				border: 1px solid rgba(76, 60, 41, 0.12);
+				background: rgba(255, 255, 255, 0.42);
+			}
+
+			summary {
+				cursor: pointer;
+				font-weight: 700;
+			}
+
+			textarea {
+				width: 100%;
+				min-height: 100px;
+				padding: 12px 14px;
+				border-radius: 14px;
+				border: 1px solid rgba(76, 60, 41, 0.16);
+				background: var(--panel-strong);
+				color: var(--text);
+				resize: vertical;
+			}
+
 			@media (max-width: 860px) {
 				.layout,
 				.field-grid {
@@ -260,7 +336,7 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				<h1>Make an old show feel freshly released again.</h1>
 				<p>
 					Paste an existing podcast RSS feed, choose when your replay should begin, and generate a custom URL for your podcast app.
-					The Worker will eventually rewrite publish dates, hide episodes that have not "released" yet, and preserve the original episode media files.
+					The Worker rewrites publish dates, hides episodes that have not "released" yet, and preserves the original episode media files.
 				</p>
 			</section>
 
@@ -329,9 +405,65 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 							That convenience is for the website only and does not need to appear in the final feed URL.
 						</p>
 
-						<p class="help">
-							A later version of this form will include advanced channel-title controls so users can keep the original title, use a default replay template, or provide a custom title.
-						</p>
+						<details>
+							<summary>Advanced feed metadata</summary>
+							<div class="field-grid" style="margin-top: 16px;">
+								<label>
+									<span>Title behavior</span>
+									<select id="titleMode" name="titleMode">
+										<option value="template">Default template</option>
+										<option value="original">Keep original</option>
+										<option value="custom">Custom title</option>
+									</select>
+								</label>
+
+								<label>
+									<span>Description behavior</span>
+									<select id="descriptionMode" name="descriptionMode">
+										<option value="template">Default template</option>
+										<option value="original">Keep original</option>
+										<option value="custom">Custom description</option>
+									</select>
+								</label>
+							</div>
+
+							<label style="margin-top: 16px;">
+								<span>Title template</span>
+								<input
+									id="titleTemplate"
+									name="titleTemplate"
+									type="text"
+									placeholder="{{title}} (Rewind)"
+								/>
+							</label>
+
+							<label style="margin-top: 16px;">
+								<span>Custom title</span>
+								<input id="customTitle" name="customTitle" type="text" placeholder="My replay feed title" />
+							</label>
+
+							<label style="margin-top: 16px;">
+								<span>Description template</span>
+								<textarea
+									id="descriptionTemplate"
+									name="descriptionTemplate"
+									placeholder="Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}."
+								></textarea>
+							</label>
+
+							<label style="margin-top: 16px;">
+								<span>Custom description</span>
+								<textarea
+									id="customDescription"
+									name="customDescription"
+									placeholder="A custom description for podcast apps."
+								></textarea>
+							</label>
+
+							<p class="help">
+								Supported template placeholders include <code>{{title}}</code>, <code>{{description}}</code>, <code>{{cadenceCount}}</code>, <code>{{cadenceUnit}}</code>, <code>{{startDate}}</code>, and <code>{{timeZone}}</code>.
+							</p>
+						</details>
 
 						<button type="submit">Generate Podcast URL</button>
 					</form>
@@ -375,6 +507,12 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				const releaseWeekday = document.getElementById('releaseWeekday').value;
 				const releaseTime = document.getElementById('releaseTime').value;
 				const timeZone = document.getElementById('timeZone').value.trim();
+				const titleMode = document.getElementById('titleMode').value;
+				const titleTemplate = document.getElementById('titleTemplate').value.trim();
+				const customTitle = document.getElementById('customTitle').value.trim();
+				const descriptionMode = document.getElementById('descriptionMode').value;
+				const descriptionTemplate = document.getElementById('descriptionTemplate').value.trim();
+				const customDescription = document.getElementById('customDescription').value.trim();
 
 				if (!sourceUrl || !startDate || !cadenceCount || !releaseTime || !timeZone) {
 					output.textContent = 'Please complete the required fields first.';
@@ -390,6 +528,24 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				url.searchParams.set('releaseWeekday', releaseWeekday);
 				url.searchParams.set('releaseTime', releaseTime);
 				url.searchParams.set('timeZone', timeZone);
+				url.searchParams.set('titleMode', titleMode);
+				url.searchParams.set('descriptionMode', descriptionMode);
+
+				if (titleTemplate) {
+					url.searchParams.set('titleTemplate', titleTemplate);
+				}
+
+				if (customTitle) {
+					url.searchParams.set('customTitle', customTitle);
+				}
+
+				if (descriptionTemplate) {
+					url.searchParams.set('descriptionTemplate', descriptionTemplate);
+				}
+
+				if (customDescription) {
+					url.searchParams.set('customDescription', customDescription);
+				}
 
 				output.textContent = url.toString();
 			});

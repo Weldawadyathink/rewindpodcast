@@ -10,15 +10,22 @@ The goal is to take an existing podcast RSS feed, rewrite episode publish dates 
 - Hono
 - TypeScript
 
-## Current Status
+## What It Does
 
-The repository is scaffolded with:
+- Fetches a source podcast feed on every request
+- Rewrites episode release dates onto a replay schedule
+- Removes episodes whose replay date is still in the future
+- Preserves original enclosure URLs
+- Adds an “Originally released” note to episode content when possible
+- Serves a simple website that generates replay feed URLs
 
-- a Hono Worker entrypoint
-- a starter website for generating replay feed URLs
-- an initial product requirements document
+See [docs/requirements.md](./docs/requirements.md) for the working spec and open product decisions.
 
-See [docs/requirements.md](./docs/requirements.md) for the working spec.
+## Main Routes
+
+- `/` renders the feed builder website
+- `/feed` returns the rewritten RSS or Atom feed
+- `/healthz` returns a small JSON health response
 
 ## Local Development
 
