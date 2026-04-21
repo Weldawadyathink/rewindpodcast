@@ -5,6 +5,7 @@ import {
 	type CadenceUnit,
 	type ChannelTextMode,
 } from './feed';
+import { PODCAST_APPS } from './podcast-apps';
 
 type FeedFormState = {
 	sourceUrl: string;
@@ -78,6 +79,17 @@ app.get('/healthz', (c) =>
 	}),
 );
 
+app.get('/listen', (c) => {
+	try {
+		const config = parseReplayFeedConfig(c.req.query());
+		const feedUrl = buildFeedUrl(new URL(c.req.url), c.req.query());
+		return c.html(renderListenPage(c.req.url, config, feedUrl));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Invalid replay settings.';
+		return c.html(renderListenErrorPage(c.req.url, message), 400);
+	}
+});
+
 app.get('/feed', async (c) => {
 	try {
 		const config = parseReplayFeedConfig(c.req.query());
@@ -116,7 +128,7 @@ export default app;
 
 function renderHomePage(state: FeedFormState, requestUrl: string): string {
 	const escapedState = JSON.stringify(state).replace(/</g, '\\u003c');
-	const exampleUrl = `${new URL(requestUrl).origin}/feed?source=${encodeURIComponent('https://feeds.relay.fm/rd.xml')}&startDate=2026-05-04&cadenceCount=1&cadenceUnit=weeks&releaseWeekday=monday&releaseTime=09:00&timeZone=America%2FLos_Angeles`;
+	const exampleUrl = `${new URL(requestUrl).origin}/listen?source=${encodeURIComponent('https://feeds.relay.fm/rd.xml')}&startDate=2026-05-04&cadenceCount=1&cadenceUnit=weeks&releaseWeekday=monday&releaseTime=09:00&timeZone=America%2FLos_Angeles`;
 
 	return `<!doctype html>
 <html lang="en">
@@ -311,6 +323,15 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				resize: vertical;
 			}
 
+			.result-card {
+				display: grid;
+				gap: 14px;
+				padding: 18px;
+				border-radius: 18px;
+				background: rgba(255, 255, 255, 0.48);
+				border: 1px solid rgba(76, 60, 41, 0.12);
+			}
+
 			@media (max-width: 860px) {
 				.layout,
 				.field-grid {
@@ -334,9 +355,9 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 			<section class="hero">
 				<div class="eyebrow">Stateless Podcast Feed Rewrites</div>
 				<h1>Make an old show feel freshly released again.</h1>
-				<p>
-					Paste an existing podcast RSS feed, choose when your replay should begin, and generate a custom URL for your podcast app.
-					The Worker rewrites publish dates, hides episodes that have not "released" yet, and preserves the original episode media files.
+					<p>
+						Paste an existing podcast RSS feed, choose when your replay should begin, and generate a custom URL for your podcast app.
+						The Worker rewrites publish dates, hides episodes that have not "released" yet, and preserves the original episode media files.
 				</p>
 			</section>
 
@@ -480,8 +501,11 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 						<li>Pass through as much of the original feed markup as possible.</li>
 					</ul>
 
-					<p class="output-note">Example generated URL</p>
-					<pre id="output">${escapeHtml(exampleUrl)}</pre>
+					<div class="result-card">
+						<p class="output-note">After you click generate</p>
+						<p style="margin: 0;">You’ll land on a page with your feed URL, a copy button, and app links like Apple Podcasts, Overcast, Pocket Casts, Castro, Downcast, and Android-compatible apps.</p>
+						<pre id="output">${escapeHtml(exampleUrl)}</pre>
+					</div>
 				</section>
 			</div>
 		</main>
@@ -520,7 +544,7 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				}
 
 				const adjustedStartDate = calculateStartDate(startDate, releaseWeekday, cadenceCount, cadenceUnit, episodeNumber);
-				const url = new URL('/feed', window.location.origin);
+				const url = new URL('/listen', window.location.origin);
 				url.searchParams.set('source', sourceUrl);
 				url.searchParams.set('startDate', adjustedStartDate);
 				url.searchParams.set('cadenceCount', String(cadenceCount));
@@ -548,6 +572,7 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				}
 
 				output.textContent = url.toString();
+				window.location.assign(url.toString());
 			});
 
 			function calculateStartDate(startDate, releaseWeekday, cadenceCount, cadenceUnit, episodeNumber) {
@@ -583,4 +608,296 @@ function escapeHtml(value: string): string {
 		.replaceAll('<', '&lt;')
 		.replaceAll('>', '&gt;')
 		.replaceAll('"', '&quot;');
+}
+
+function buildFeedUrl(requestUrl: URL, query: Record<string, string | undefined>): string {
+	const feedUrl = new URL('/feed', requestUrl.origin);
+	for (const [key, value] of Object.entries(query)) {
+		if (value) {
+			feedUrl.searchParams.set(key, value);
+		}
+	}
+	return feedUrl.toString();
+}
+
+function renderListenErrorPage(requestUrl: string, message: string): string {
+	return `<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Rewind Podcast Setup Error</title>
+		<style>
+			body {
+				margin: 0;
+				font-family: "Avenir Next", "Segoe UI", sans-serif;
+				background: linear-gradient(180deg, #fff9f2 0%, #f6efe3 100%);
+				color: #1f1a15;
+			}
+			main {
+				max-width: 760px;
+				margin: 0 auto;
+				padding: 32px 20px 56px;
+			}
+			.panel {
+				background: rgba(255, 252, 247, 0.92);
+				border: 1px solid rgba(68, 51, 33, 0.12);
+				border-radius: 20px;
+				padding: 24px;
+			}
+			a {
+				color: #bb4d00;
+				font-weight: 700;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<div class="panel">
+				<h1>We need one more fix before your feed URL is ready.</h1>
+				<p>${escapeHtml(message)}</p>
+				<p><a href="${escapeHtml(new URL('/', requestUrl).toString())}">Go back to the form</a></p>
+			</div>
+		</main>
+	</body>
+</html>`;
+}
+
+function renderListenPage(requestUrl: string, config: ReturnType<typeof parseReplayFeedConfig>, feedUrl: string): string {
+	const appCards = PODCAST_APPS.map((app) => {
+		return `<a class="subscribe-badge" href="${escapeHtml(app.subscribeUrl(feedUrl))}">
+			<span class="badge-icon">${app.iconSvg}</span>
+			<span class="badge-name">${escapeHtml(app.label)}</span>
+		</a>`;
+	}).join('');
+
+	const backUrl = new URL('/', requestUrl);
+	backUrl.searchParams.set('source', config.source);
+	backUrl.searchParams.set('startDate', config.startDate);
+	backUrl.searchParams.set('cadenceCount', String(config.cadenceCount));
+	backUrl.searchParams.set('cadenceUnit', config.cadenceUnit);
+	backUrl.searchParams.set('releaseWeekday', config.releaseWeekday);
+	backUrl.searchParams.set('releaseTime', config.releaseTime);
+	backUrl.searchParams.set('timeZone', config.timeZone);
+	backUrl.searchParams.set('titleMode', config.titleMode);
+	backUrl.searchParams.set('titleTemplate', config.titleTemplate);
+	backUrl.searchParams.set('customTitle', config.customTitle);
+	backUrl.searchParams.set('descriptionMode', config.descriptionMode);
+	backUrl.searchParams.set('descriptionTemplate', config.descriptionTemplate);
+	backUrl.searchParams.set('customDescription', config.customDescription);
+
+	return `<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Your Rewind Podcast Feed</title>
+		<style>
+			:root {
+				--bg: #fbf6ee;
+				--panel: rgba(255, 252, 247, 0.9);
+				--text: #1f1a15;
+				--muted: #6c5d4f;
+				--line: rgba(68, 51, 33, 0.14);
+				--accent: #bb4d00;
+				--accent-soft: #ffe3cc;
+				--shadow: 0 24px 60px rgba(87, 51, 20, 0.14);
+			}
+			* { box-sizing: border-box; }
+			body {
+				margin: 0;
+				font-family: "Avenir Next", "Segoe UI", sans-serif;
+				color: var(--text);
+				background:
+					radial-gradient(circle at top left, rgba(255, 214, 170, 0.9), transparent 34%),
+					radial-gradient(circle at right center, rgba(253, 190, 138, 0.5), transparent 28%),
+					linear-gradient(180deg, #fff9f2 0%, var(--bg) 55%, #f6efe3 100%);
+				min-height: 100vh;
+			}
+			main {
+				width: min(920px, calc(100vw - 32px));
+				margin: 0 auto;
+				padding: 40px 0 56px;
+			}
+			.panel {
+				background: var(--panel);
+				border: 1px solid var(--line);
+				border-radius: 24px;
+				box-shadow: var(--shadow);
+				padding: 28px;
+				margin-bottom: 24px;
+			}
+			.eyebrow {
+				display: inline-block;
+				margin-bottom: 14px;
+				padding: 8px 12px;
+				font-size: 12px;
+				font-weight: 700;
+				letter-spacing: 0.12em;
+				text-transform: uppercase;
+				border-radius: 999px;
+				background: var(--accent-soft);
+				color: var(--accent);
+			}
+			h1 { margin: 0 0 10px; font-size: clamp(2rem, 4vw, 4rem); line-height: 0.95; letter-spacing: -0.05em; }
+			p { color: var(--muted); line-height: 1.55; }
+			.feed-field {
+				display: grid;
+				grid-template-columns: 1fr auto;
+				gap: 12px;
+				align-items: center;
+				margin-top: 14px;
+			}
+			input[type="text"] {
+				width: 100%;
+				padding: 14px 16px;
+				border-radius: 14px;
+				border: 1px solid rgba(76, 60, 41, 0.16);
+				background: #fffdf8;
+				color: var(--text);
+				font: inherit;
+			}
+			button, .back-link {
+				font: inherit;
+				border: 0;
+				border-radius: 14px;
+				padding: 14px 18px;
+				font-weight: 700;
+				text-decoration: none;
+			}
+			button {
+				cursor: pointer;
+				color: white;
+				background: linear-gradient(135deg, #bb4d00 0%, #dd7021 100%);
+				box-shadow: 0 16px 30px rgba(187, 77, 0, 0.24);
+			}
+			.back-link {
+				display: inline-block;
+				margin-top: 12px;
+				color: var(--accent);
+				background: rgba(255, 255, 255, 0.6);
+				border: 1px solid rgba(76, 60, 41, 0.12);
+			}
+			.subscribe-grid {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 12px 10px;
+				margin-top: 12px;
+			}
+			.subscribe-badge {
+				display: inline-flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				width: 5.25rem;
+				padding: 8px 6px;
+				text-align: center;
+				text-decoration: none;
+				color: var(--text);
+				border-radius: 16px;
+				background: rgba(255,255,255,0.55);
+				border: 1px solid rgba(76, 60, 41, 0.08);
+			}
+			.subscribe-badge:hover {
+				background: rgba(255,255,255,0.9);
+			}
+			.badge-icon svg {
+				width: 3rem;
+				height: 3rem;
+				display: block;
+				margin: 0 auto 0.35rem;
+			}
+			.badge-name {
+				font-size: 0.76rem;
+				line-height: 1.2;
+			}
+			.meta-list {
+				display: grid;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+				gap: 12px;
+				margin-top: 18px;
+			}
+			.meta {
+				padding: 14px 16px;
+				border-radius: 16px;
+				background: rgba(255,255,255,0.5);
+				border: 1px solid rgba(76, 60, 41, 0.08);
+			}
+			.meta strong {
+				display: block;
+				font-size: 0.78rem;
+				letter-spacing: 0.04em;
+				text-transform: uppercase;
+				color: var(--muted);
+				margin-bottom: 6px;
+			}
+			.copy-status {
+				margin-top: 10px;
+				min-height: 1.3em;
+				color: var(--accent);
+				font-weight: 700;
+			}
+			@media (max-width: 720px) {
+				main { width: min(100vw - 20px, 720px); padding-top: 20px; }
+				.panel { padding: 20px; }
+				.feed-field, .meta-list { grid-template-columns: 1fr; }
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<section class="panel">
+				<div class="eyebrow">Your Feed Is Ready</div>
+				<h1>Add your rewind feed to a podcast app.</h1>
+				<p>This page follows the ATP-style membership flow: copy the raw feed URL, or open it directly in a supported app.</p>
+
+				<div class="feed-field">
+					<input id="feed-url" type="text" readonly value="${escapeHtml(feedUrl)}" />
+					<button id="copy-button" type="button">Copy Feed URL</button>
+				</div>
+				<div id="copy-status" class="copy-status"></div>
+
+				<a class="back-link" href="${escapeHtml(backUrl.toString())}">Edit these settings</a>
+			</section>
+
+			<section class="panel">
+				<h2 style="margin-top: 0;">Add directly to popular apps</h2>
+				<p>Select an app:</p>
+				<div class="subscribe-grid">${appCards}</div>
+			</section>
+
+			<section class="panel">
+				<h2 style="margin-top: 0;">Replay settings</h2>
+				<div class="meta-list">
+					<div class="meta"><strong>Source Feed</strong>${escapeHtml(config.source)}</div>
+					<div class="meta"><strong>Start Date</strong>${escapeHtml(config.startDate)}</div>
+					<div class="meta"><strong>Cadence</strong>${escapeHtml(`${config.cadenceCount} ${config.cadenceUnit}`)}</div>
+					<div class="meta"><strong>Release Time Zone</strong>${escapeHtml(config.timeZone)}</div>
+				</div>
+			</section>
+		</main>
+		<script>
+			const button = document.getElementById('copy-button');
+			const input = document.getElementById('feed-url');
+			const status = document.getElementById('copy-status');
+
+			button.addEventListener('click', async () => {
+				try {
+					if (navigator.clipboard?.writeText) {
+						await navigator.clipboard.writeText(input.value);
+					} else {
+						input.focus();
+						input.select();
+						document.execCommand('copy');
+					}
+					status.textContent = 'Feed URL copied.';
+				} catch (error) {
+					input.focus();
+					input.select();
+					status.textContent = 'Select the URL and copy it manually.';
+				}
+			});
+		</script>
+	</body>
+</html>`;
 }
