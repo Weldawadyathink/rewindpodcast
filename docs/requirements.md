@@ -46,6 +46,7 @@ The same Worker should also serve an approachable website for non-technical user
 - The Worker removes or suppresses episodes whose replay release date is still in the future.
 - The Worker leaves episode download and enclosure URLs pointing at the original host.
 - The Worker adds a note near the top of each episode description indicating the original release date.
+- If a feed exposes both `description` and a richer field such as `content:encoded`, the Worker should prefer adding the note to the richer rendered content while leaving the simpler fallback field as untouched as practical.
 - The Worker should otherwise preserve the original feed as much as possible.
 
 ## Feed Handling Philosophy
@@ -73,14 +74,12 @@ The same Worker should also serve an approachable website for non-technical user
 - Supports the website-only "start from episode N" helper flow.
 - Includes an advanced option for channel title templating.
 - Advanced users should be able to choose between a default replay-title template, the untouched original title, or a fully custom title.
+- Advanced users should also be able to choose a default replay-description template, keep the original feed description, or provide a custom feed description.
 
 ## Open Questions
 
-1. How should the original release note be injected when an episode description uses HTML, CDATA, plain text, or a namespaced field such as `content:encoded`?
-2. Besides title templating, which channel-level metadata should be optionally customizable in v1: description, artwork, author, or self-link?
-3. Should there be a maximum number of source episodes processed per request to keep Worker execution time predictable?
-4. Do we want optional "pause" behavior, where a listener can temporarily stop receiving new replay episodes without changing the feed URL?
-5. Should the UI validate podcast URLs aggressively, or mostly trust input and let the Worker explain failures?
+1. Do we want optional "pause" behavior, where a listener can temporarily stop receiving new replay episodes without changing the feed URL?
+2. Should the UI validate podcast URLs aggressively, or mostly trust input and let the Worker explain failures?
 
 ## Decisions Confirmed
 
@@ -88,7 +87,10 @@ The same Worker should also serve an approachable website for non-technical user
 - Feed format scope: support podcast feeds broadly; include Atom if podcasts in the wild need it
 - Missing or inconsistent episode dates: fall back to feed order
 - Channel title behavior: offer templating by default, with advanced options for original title or fully custom title
+- Channel description behavior: offer templating by default, with advanced options for original description or fully custom description
+- Description note injection: prefer the richer rendered episode content when multiple description-like fields exist
 - Source fetching and feed generation: do the work fresh on every request
+- Episode processing cap: none for v1
 
 ## Initial Milestones
 
