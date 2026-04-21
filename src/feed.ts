@@ -8,7 +8,6 @@ export type ReleaseWeekday =
 	| 'friday'
 	| 'saturday';
 
-export type ChannelTextMode = 'template' | 'original' | 'custom';
 export type FeedKind = 'rss' | 'atom';
 
 export type ReplayFeedConfig = {
@@ -19,12 +18,8 @@ export type ReplayFeedConfig = {
 	releaseWeekday: ReleaseWeekday;
 	releaseTime: string;
 	timeZone: string;
-	titleMode: ChannelTextMode;
 	titleTemplate: string;
-	customTitle: string;
-	descriptionMode: ChannelTextMode;
 	descriptionTemplate: string;
-	customDescription: string;
 };
 
 export type ReplayFeedResult = {
@@ -83,9 +78,6 @@ export function parseReplayFeedConfig(query: Record<string, string | undefined>)
 	const releaseWeekday = readWeekday(query.releaseWeekday ?? 'monday');
 	const releaseTime = readTimeParam(query.releaseTime ?? '09:00', 'releaseTime');
 	const timeZone = readTimeZoneParam(query.timeZone ?? 'America/Los_Angeles');
-	const titleMode = readTextMode(query.titleMode ?? 'template');
-	const descriptionMode = readTextMode(query.descriptionMode ?? 'template');
-
 	return {
 		source,
 		startDate,
@@ -94,12 +86,8 @@ export function parseReplayFeedConfig(query: Record<string, string | undefined>)
 		releaseWeekday,
 		releaseTime,
 		timeZone,
-		titleMode,
 		titleTemplate: query.titleTemplate?.trim() || DEFAULT_TITLE_TEMPLATE,
-		customTitle: query.customTitle?.trim() || '',
-		descriptionMode,
 		descriptionTemplate: query.descriptionTemplate?.trim() || DEFAULT_DESCRIPTION_TEMPLATE,
-		customDescription: query.customDescription?.trim() || '',
 	};
 }
 
@@ -291,14 +279,8 @@ function rewriteRssChannelMetadata(head: string, config: ReplayFeedConfig): stri
 	const originalTitle = extractFirstTagText(head, ['title']) ?? 'Podcast';
 	const originalDescription = extractFirstTagText(head, ['description']) ?? '';
 	const context = buildTemplateContext(config, originalTitle, originalDescription);
-	const nextTitle = resolveChannelText(config.titleMode, config.titleTemplate, config.customTitle, context, originalTitle);
-	const nextDescription = resolveChannelText(
-		config.descriptionMode,
-		config.descriptionTemplate,
-		config.customDescription,
-		context,
-		originalDescription,
-	);
+	const nextTitle = applyTemplate(config.titleTemplate, context) || originalTitle;
+	const nextDescription = applyTemplate(config.descriptionTemplate, context) || originalDescription;
 
 	let rewritten = upsertTextTag(head, 'title', nextTitle, {
 		afterTag: null,
@@ -315,14 +297,8 @@ function rewriteAtomChannelMetadata(head: string, config: ReplayFeedConfig): str
 	const originalTitle = extractFirstTagText(head, ['title']) ?? 'Podcast';
 	const originalDescription = extractFirstTagText(head, ['subtitle']) ?? '';
 	const context = buildTemplateContext(config, originalTitle, originalDescription);
-	const nextTitle = resolveChannelText(config.titleMode, config.titleTemplate, config.customTitle, context, originalTitle);
-	const nextDescription = resolveChannelText(
-		config.descriptionMode,
-		config.descriptionTemplate,
-		config.customDescription,
-		context,
-		originalDescription,
-	);
+	const nextTitle = applyTemplate(config.titleTemplate, context) || originalTitle;
+	const nextDescription = applyTemplate(config.descriptionTemplate, context) || originalDescription;
 
 	let rewritten = upsertTextTag(head, 'title', nextTitle, {
 		afterTag: null,
@@ -417,24 +393,6 @@ function buildTemplateContext(
 		timeZone: config.timeZone,
 		title,
 	};
-}
-
-function resolveChannelText(
-	mode: ChannelTextMode,
-	template: string,
-	customValue: string,
-	context: ChannelTemplateContext,
-	originalValue: string,
-): string {
-	switch (mode) {
-		case 'original':
-			return originalValue;
-		case 'custom':
-			return customValue || originalValue;
-		case 'template':
-		default:
-			return applyTemplate(template, context) || originalValue;
-	}
 }
 
 function applyTemplate(template: string, context: ChannelTemplateContext): string {
@@ -838,13 +796,6 @@ function readTimeZoneParam(value: string): string {
 	} catch {
 		throw new Error('Query parameter "timeZone" must be a valid IANA time zone.');
 	}
-}
-
-function readTextMode(value: string): ChannelTextMode {
-	if (value === 'template' || value === 'original' || value === 'custom') {
-		return value;
-	}
-	throw new Error('Text mode parameters must be "template", "original", or "custom".');
 }
 
 function escapeXml(value: string): string {

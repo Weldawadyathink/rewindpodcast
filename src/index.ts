@@ -4,7 +4,6 @@ import {
 	buildReplayFeed,
 	parseReplayFeedConfig,
 	type CadenceUnit,
-	type ChannelTextMode,
 } from './feed';
 import { PODCAST_APPS } from './podcast-apps';
 
@@ -17,12 +16,8 @@ type FeedFormState = {
 	releaseWeekday: string;
 	releaseTime: string;
 	timeZone: string;
-	titleMode: ChannelTextMode;
 	titleTemplate: string;
-	customTitle: string;
-	descriptionMode: ChannelTextMode;
 	descriptionTemplate: string;
-	customDescription: string;
 };
 
 const defaultState: FeedFormState = {
@@ -34,12 +29,8 @@ const defaultState: FeedFormState = {
 	releaseWeekday: 'monday',
 	releaseTime: '09:00',
 	timeZone: 'America/Los_Angeles',
-	titleMode: 'template',
 	titleTemplate: '{{title}} (Rewind)',
-	customTitle: '',
-	descriptionMode: 'template',
 	descriptionTemplate: 'Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}.',
-	customDescription: '',
 };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -56,17 +47,9 @@ app.get('/', (c) => {
 		releaseWeekday: requestUrl.searchParams.get('releaseWeekday') ?? defaultState.releaseWeekday,
 		releaseTime: requestUrl.searchParams.get('releaseTime') ?? defaultState.releaseTime,
 		timeZone: requestUrl.searchParams.get('timeZone') ?? defaultState.timeZone,
-		titleMode:
-			(requestUrl.searchParams.get('titleMode') as ChannelTextMode | null) ?? defaultState.titleMode,
 		titleTemplate: requestUrl.searchParams.get('titleTemplate') ?? defaultState.titleTemplate,
-		customTitle: requestUrl.searchParams.get('customTitle') ?? defaultState.customTitle,
-		descriptionMode:
-			(requestUrl.searchParams.get('descriptionMode') as ChannelTextMode | null) ??
-			defaultState.descriptionMode,
 		descriptionTemplate:
 			requestUrl.searchParams.get('descriptionTemplate') ?? defaultState.descriptionTemplate,
-		customDescription:
-			requestUrl.searchParams.get('customDescription') ?? defaultState.customDescription,
 	};
 
 	return c.html(renderHomePage(state, c.req.url));
@@ -428,65 +411,28 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 							That convenience is for the website only and does not need to appear in the final feed URL.
 						</p>
 
-						<details>
-							<summary>Advanced feed metadata</summary>
-							<div class="field-grid" style="margin-top: 16px;">
-								<label>
-									<span>Title behavior</span>
-									<select id="titleMode" name="titleMode">
-										<option value="template">Default template</option>
-										<option value="original">Keep original</option>
-										<option value="custom">Custom title</option>
-									</select>
-								</label>
+						<label>
+							<span>Feed title template</span>
+							<input
+								id="titleTemplate"
+								name="titleTemplate"
+								type="text"
+								placeholder="{{title}} (Rewind)"
+							/>
+						</label>
 
-								<label>
-									<span>Description behavior</span>
-									<select id="descriptionMode" name="descriptionMode">
-										<option value="template">Default template</option>
-										<option value="original">Keep original</option>
-										<option value="custom">Custom description</option>
-									</select>
-								</label>
-							</div>
+						<label>
+							<span>Feed description template</span>
+							<textarea
+								id="descriptionTemplate"
+								name="descriptionTemplate"
+								placeholder="Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}."
+							></textarea>
+						</label>
 
-							<label style="margin-top: 16px;">
-								<span>Title template</span>
-								<input
-									id="titleTemplate"
-									name="titleTemplate"
-									type="text"
-									placeholder="{{title}} (Rewind)"
-								/>
-							</label>
-
-							<label style="margin-top: 16px;">
-								<span>Custom title</span>
-								<input id="customTitle" name="customTitle" type="text" placeholder="My replay feed title" />
-							</label>
-
-							<label style="margin-top: 16px;">
-								<span>Description template</span>
-								<textarea
-									id="descriptionTemplate"
-									name="descriptionTemplate"
-									placeholder="Replay feed for {{title}}. Episodes release every {{cadenceCount}} {{cadenceUnit}}."
-								></textarea>
-							</label>
-
-							<label style="margin-top: 16px;">
-								<span>Custom description</span>
-								<textarea
-									id="customDescription"
-									name="customDescription"
-									placeholder="A custom description for podcast apps."
-								></textarea>
-							</label>
-
-							<p class="help">
-								Supported template placeholders include <code>{{title}}</code>, <code>{{description}}</code>, <code>{{cadenceCount}}</code>, <code>{{cadenceUnit}}</code>, <code>{{startDate}}</code>, and <code>{{timeZone}}</code>.
-							</p>
-						</details>
+						<p class="help">
+							Supported template placeholders include <code>{{title}}</code>, <code>{{description}}</code>, <code>{{cadenceCount}}</code>, <code>{{cadenceUnit}}</code>, <code>{{startDate}}</code>, and <code>{{timeZone}}</code>.
+						</p>
 
 						<button type="submit">Generate Podcast URL</button>
 					</form>
@@ -533,12 +479,8 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				const releaseWeekday = document.getElementById('releaseWeekday').value;
 				const releaseTime = document.getElementById('releaseTime').value;
 				const timeZone = document.getElementById('timeZone').value.trim();
-				const titleMode = document.getElementById('titleMode').value;
 				const titleTemplate = document.getElementById('titleTemplate').value.trim();
-				const customTitle = document.getElementById('customTitle').value.trim();
-				const descriptionMode = document.getElementById('descriptionMode').value;
 				const descriptionTemplate = document.getElementById('descriptionTemplate').value.trim();
-				const customDescription = document.getElementById('customDescription').value.trim();
 
 				if (!sourceUrl || !startDate || !cadenceCount || !releaseTime || !timeZone) {
 					output.textContent = 'Please complete the required fields first.';
@@ -554,23 +496,13 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				url.searchParams.set('releaseWeekday', releaseWeekday);
 				url.searchParams.set('releaseTime', releaseTime);
 				url.searchParams.set('timeZone', timeZone);
-				url.searchParams.set('titleMode', titleMode);
-				url.searchParams.set('descriptionMode', descriptionMode);
 
 				if (titleTemplate) {
 					url.searchParams.set('titleTemplate', titleTemplate);
 				}
 
-				if (customTitle) {
-					url.searchParams.set('customTitle', customTitle);
-				}
-
 				if (descriptionTemplate) {
 					url.searchParams.set('descriptionTemplate', descriptionTemplate);
-				}
-
-				if (customDescription) {
-					url.searchParams.set('customDescription', customDescription);
 				}
 
 				output.textContent = url.toString();
@@ -686,12 +618,8 @@ function renderListenPage(
 	backUrl.searchParams.set('releaseWeekday', config.releaseWeekday);
 	backUrl.searchParams.set('releaseTime', config.releaseTime);
 	backUrl.searchParams.set('timeZone', config.timeZone);
-	backUrl.searchParams.set('titleMode', config.titleMode);
 	backUrl.searchParams.set('titleTemplate', config.titleTemplate);
-	backUrl.searchParams.set('customTitle', config.customTitle);
-	backUrl.searchParams.set('descriptionMode', config.descriptionMode);
 	backUrl.searchParams.set('descriptionTemplate', config.descriptionTemplate);
-	backUrl.searchParams.set('customDescription', config.customDescription);
 
 	return `<!doctype html>
 <html lang="en">
