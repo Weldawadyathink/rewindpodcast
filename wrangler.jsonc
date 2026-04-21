@@ -1,11 +1,22 @@
 {
-  "name": "rewindpodcast",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-04-20",
-  "compatibility_flags": [
-    "global_fetch_strictly_public"
-  ],
-  "observability": {
-    "enabled": true
-  }
+	"name": "rewindpodcast",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-20",
+	"compatibility_flags": ["global_fetch_strictly_public"],
+	"workers_dev": true,
+	"preview_urls": true,
+	"observability": {
+		"enabled": true,
+	},
+	"upload_source_maps": true,
+	"routes": [
+		{
+			"pattern": "rewindpodcast.xyz",
+			"custom_domain": true,
+		},
+		{
+			"pattern": "www.rewindpodcast.xyz",
+			"custom_domain": true,
+		},
+	],
 }
