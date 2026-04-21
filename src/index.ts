@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import QRCode from 'qrcode';
 import {
 	buildReplayFeed,
 	parseReplayFeedConfig,
@@ -79,11 +80,12 @@ app.get('/healthz', (c) =>
 	}),
 );
 
-app.get('/listen', (c) => {
+app.get('/listen', async (c) => {
 	try {
 		const config = parseReplayFeedConfig(c.req.query());
 		const feedUrl = buildFeedUrl(new URL(c.req.url), c.req.query());
-		return c.html(renderListenPage(c.req.url, config, feedUrl));
+		const qrCodeSvg = await buildQrCodeSvg(c.req.url);
+		return c.html(renderListenPage(c.req.url, config, feedUrl, qrCodeSvg));
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Invalid replay settings.';
 		return c.html(renderListenErrorPage(c.req.url, message), 400);
@@ -663,7 +665,12 @@ function renderListenErrorPage(requestUrl: string, message: string): string {
 </html>`;
 }
 
-function renderListenPage(requestUrl: string, config: ReturnType<typeof parseReplayFeedConfig>, feedUrl: string): string {
+function renderListenPage(
+	requestUrl: string,
+	config: ReturnType<typeof parseReplayFeedConfig>,
+	feedUrl: string,
+	qrCodeSvg: string,
+): string {
 	const appCards = PODCAST_APPS.map((app) => {
 		return `<a class="subscribe-badge" href="${escapeHtml(app.subscribeUrl(feedUrl))}">
 			<span class="badge-icon">${app.iconSvg}</span>
@@ -784,6 +791,31 @@ function renderListenPage(requestUrl: string, config: ReturnType<typeof parseRep
 				gap: 12px 10px;
 				margin-top: 12px;
 			}
+			.qr-shell {
+				display: grid;
+				grid-template-columns: 220px 1fr;
+				gap: 20px;
+				align-items: center;
+				margin-top: 16px;
+				padding: 18px;
+				border-radius: 20px;
+				background: rgba(255,255,255,0.5);
+				border: 1px solid rgba(76, 60, 41, 0.08);
+			}
+			.qr-art {
+				width: 220px;
+				height: 220px;
+				display: grid;
+				place-items: center;
+				border-radius: 18px;
+				background: white;
+				padding: 10px;
+			}
+			.qr-art svg {
+				width: 100%;
+				height: 100%;
+				display: block;
+			}
 			.subscribe-badge {
 				display: inline-flex;
 				flex-direction: column;
@@ -841,6 +873,8 @@ function renderListenPage(requestUrl: string, config: ReturnType<typeof parseRep
 				main { width: min(100vw - 20px, 720px); padding-top: 20px; }
 				.panel { padding: 20px; }
 				.feed-field, .meta-list { grid-template-columns: 1fr; }
+				.qr-shell { grid-template-columns: 1fr; }
+				.qr-art { width: min(220px, 100%); height: auto; margin: 0 auto; aspect-ratio: 1; }
 			}
 		</style>
 	</head>
@@ -862,7 +896,19 @@ function renderListenPage(requestUrl: string, config: ReturnType<typeof parseRep
 
 			<section class="panel">
 				<h2 style="margin-top: 0;">Add directly to popular apps</h2>
-				<p>Select an app:</p>
+				<p>Open this page on your phone with the QR code, then choose your preferred app below.</p>
+				<div class="qr-shell">
+					<div class="qr-art" aria-label="QR code linking back to this rewind feed page">${qrCodeSvg}</div>
+					<div>
+						<p style="margin-top: 0;">
+							Scan this QR code with your phone camera. It opens this setup page, not a specific podcast app, so you can decide which app to use from there.
+						</p>
+						<p style="margin-bottom: 0;">
+							If you're already on your phone, you can skip the QR code and choose an app directly.
+						</p>
+					</div>
+				</div>
+				<p style="margin-top: 20px;">Select an app:</p>
 				<div class="subscribe-grid">${appCards}</div>
 			</section>
 
@@ -900,4 +946,16 @@ function renderListenPage(requestUrl: string, config: ReturnType<typeof parseRep
 		</script>
 	</body>
 </html>`;
+}
+
+async function buildQrCodeSvg(value: string): Promise<string> {
+	return await QRCode.toString(value, {
+		type: 'svg',
+		errorCorrectionLevel: 'M',
+		margin: 1,
+		color: {
+			dark: '#1f1a15',
+			light: '#0000',
+		},
+	});
 }
