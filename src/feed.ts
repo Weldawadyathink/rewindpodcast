@@ -241,8 +241,9 @@ function rewriteRssFeed(
 	const rewrittenTail = rebuildFeedBody(channelTail, tailItemMatches, scheduledItems, rewriteRssItem, diagnostics);
 	const rewrittenChannel = `${channelOpen}${rewrittenHead}${rewrittenTail}${channelClose}`;
 	const rewrittenXml = `${xml.slice(0, channelMatch.index)}${rewrittenChannel}${xml.slice(channelMatch.index + fullChannel.length)}`;
+	const latestVisibleItem = getLatestVisibleScheduledItem(scheduledItems);
 	return {
-		lastModified: scheduledItems.find((item) => item.shouldInclude)?.replayDateText,
+		lastModified: latestVisibleItem?.replayDateText,
 		xml: ensureXmlDeclaration(ensureRssSelfLink(rewrittenXml, feedUrl)),
 	};
 }
@@ -279,8 +280,9 @@ function rewriteAtomFeed(
 	const rewrittenTail = rebuildFeedBody(feedTail, tailEntryMatches, scheduledItems, rewriteAtomEntry, diagnostics);
 	const rewrittenFeed = `${feedOpen}${rewrittenHead}${rewrittenTail}${feedClose}`;
 	const rewrittenXml = `${xml.slice(0, feedMatch.index)}${rewrittenFeed}${xml.slice(feedMatch.index + fullFeed.length)}`;
+	const latestVisibleItem = getLatestVisibleScheduledItem(scheduledItems);
 	return {
-		lastModified: scheduledItems.find((item) => item.shouldInclude)?.replayDateText,
+		lastModified: latestVisibleItem?.replayDateText,
 		xml: ensureXmlDeclaration(ensureAtomSelfLink(rewrittenXml, feedUrl)),
 	};
 }
@@ -372,7 +374,7 @@ function rewriteRssChannelMetadata(
 	const context = buildTemplateContext(config, originalTitle, originalDescription);
 	const nextTitle = applyTemplate(config.titleTemplate, context) || originalTitle;
 	const nextDescription = applyTemplate(config.descriptionTemplate, context) || originalDescription;
-	const latestVisibleItem = scheduledItems.find((item) => item.shouldInclude);
+	const latestVisibleItem = getLatestVisibleScheduledItem(scheduledItems);
 
 	let rewritten = upsertTextTag(head, 'title', nextTitle, {
 		afterTag: null,
@@ -409,7 +411,7 @@ function rewriteAtomChannelMetadata(
 	const context = buildTemplateContext(config, originalTitle, originalDescription);
 	const nextTitle = applyTemplate(config.titleTemplate, context) || originalTitle;
 	const nextDescription = applyTemplate(config.descriptionTemplate, context) || originalDescription;
-	const latestVisibleItem = scheduledItems.find((item) => item.shouldInclude);
+	const latestVisibleItem = getLatestVisibleScheduledItem(scheduledItems);
 
 	let rewritten = upsertTextTag(head, 'title', nextTitle, {
 		afterTag: null,
@@ -550,7 +552,9 @@ function injectIntoExistingContent(inner: string, noteText: string): string {
 	const noteHtml = `<p><strong>Originally released:</strong> ${escapeHtml(noteText)}</p>`;
 	if (trimmed.startsWith('<![CDATA[') && trimmed.endsWith(']]>')) {
 		const cdataBody = trimmed.slice(9, -3);
-		const nextBody = looksLikeMarkup(cdataBody) ? `${noteHtml}\n${cdataBody}` : `${escapeHtml(noteText)}\n\n${cdataBody}`;
+		const nextBody = looksLikeMarkup(cdataBody)
+			? `${noteHtml}\n${cdataBody}`
+			: `Originally released: ${noteText}\n\n${cdataBody}`;
 		return `<![CDATA[${nextBody}]]>`;
 	}
 
@@ -866,13 +870,16 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
 	}
 
 	if (!response.body) {
-		return await response.text();
+		const bytes = new Uint8Array(await response.arrayBuffer());
+		if (bytes.byteLength > maxBytes) {
+			throw new Error(`Source feed exceeded the ${maxBytes} byte limit.`);
+		}
+		return decodeFeedBytes(bytes, response.headers);
 	}
 
 	const reader = response.body.getReader();
-	const decoder = new TextDecoder();
 	let totalBytes = 0;
-	let output = '';
+	const chunks: Uint8Array[] = [];
 
 	while (true) {
 		const { done, value } = await reader.read();
@@ -885,11 +892,80 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
 			throw new Error(`Source feed exceeded the ${maxBytes} byte limit.`);
 		}
 
-		output += decoder.decode(value, { stream: true });
+		chunks.push(value);
 	}
 
-	output += decoder.decode();
-	return output;
+	const bytes = new Uint8Array(totalBytes);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+
+	return decodeFeedBytes(bytes, response.headers);
+}
+
+function getLatestVisibleScheduledItem(items: ScheduledItem[]): ScheduledItem | undefined {
+	return items
+		.filter((item) => item.shouldInclude)
+		.reduce<ScheduledItem | undefined>((latest, item) => {
+			if (!latest || item.replayDateMs > latest.replayDateMs) {
+				return item;
+			}
+			return latest;
+		}, undefined);
+}
+
+function decodeFeedBytes(bytes: Uint8Array, headers: Headers): string {
+	const encoding = detectFeedEncoding(bytes, headers);
+	return new TextDecoder(encoding).decode(bytes);
+}
+
+function detectFeedEncoding(bytes: Uint8Array, headers: Headers): string {
+	const bomEncoding = detectByteOrderMark(bytes);
+	if (bomEncoding) {
+		return bomEncoding;
+	}
+
+	const headerEncoding = readCharsetFromContentType(headers.get('content-type'));
+	if (headerEncoding) {
+		return headerEncoding;
+	}
+
+	const declarationEncoding = readEncodingFromXmlDeclaration(bytes);
+	if (declarationEncoding) {
+		return declarationEncoding;
+	}
+
+	return 'utf-8';
+}
+
+function detectByteOrderMark(bytes: Uint8Array): string | null {
+	if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+		return 'utf-8';
+	}
+	if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+		return 'utf-16be';
+	}
+	if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+		return 'utf-16le';
+	}
+	return null;
+}
+
+function readCharsetFromContentType(contentType: string | null): string | null {
+	if (!contentType) {
+		return null;
+	}
+
+	const match = /charset\s*=\s*("?)([^";,\s]+)\1/i.exec(contentType);
+	return match?.[2]?.trim().toLowerCase() ?? null;
+}
+
+function readEncodingFromXmlDeclaration(bytes: Uint8Array): string | null {
+	const preview = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 1024)));
+	const match = /<\?xml\b[^>]*\bencoding\s*=\s*['"]([^'"]+)['"]/i.exec(preview);
+	return match?.[1]?.trim().toLowerCase() ?? null;
 }
 
 function logDiagnostic(level: 'warn' | 'error', code: string, details: Record<string, unknown>): void {
