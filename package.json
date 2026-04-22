@@ -7,8 +7,10 @@
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
+		"test": "vitest run",
+		"test:watch": "vitest",
 		"check": "pnpm run typecheck",
-		"typecheck": "pnpm run cf-typegen && tsc --noEmit",
+		"typecheck": "pnpm run cf-typegen && tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
 		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
@@ -16,8 +18,11 @@
 		"qrcode": "^1.5.4"
 	},
 	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.14.9",
 		"@types/qrcode": "^1.5.6",
+		"fast-xml-parser": "^5.7.1",
 		"typescript": "^5.5.2",
+		"vitest": "^4.1.5",
 		"wrangler": "^4.84.0"
 	}
 }

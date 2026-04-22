@@ -73,8 +73,8 @@ The same Worker should also serve an approachable website for non-technical user
 - Produces a custom feed URL ready to paste into a podcast app.
 - Supports the website-only "start from episode N" helper flow.
 - Includes an advanced option for channel title templating.
-- Advanced users should be able to choose between a default replay-title template, the untouched original title, or a fully custom title.
-- Advanced users should also be able to choose a default replay-description template, keep the original feed description, or provide a custom feed description.
+- Advanced users should be able to choose between a templated title.
+- Advanced users should also be able to choose a replay-description template.
 
 ## Open Questions
 
