@@ -738,15 +738,11 @@ function decodeXmlEntities(value: string): string {
 }
 
 function buildOriginalReleaseNote(originalDateText: string | null, parsedDateMs: number | null): string {
+	if (parsedDateMs !== null) {
+		return formatOriginalReleaseDate(parsedDateMs);
+	}
 	if (originalDateText) {
 		return originalDateText;
-	}
-	if (parsedDateMs !== null) {
-		return new Intl.DateTimeFormat('en-US', {
-			dateStyle: 'long',
-			timeStyle: 'short',
-			timeZone: 'UTC',
-		}).format(parsedDateMs);
 	}
 	return 'Original release date unavailable';
 }
@@ -839,6 +835,13 @@ function formatReplayDate(timestamp: number): string {
 
 function formatAtomDate(timestamp: number): string {
 	return new Date(timestamp).toISOString();
+}
+
+function formatOriginalReleaseDate(timestamp: number): string {
+	return new Intl.DateTimeFormat('en-US', {
+		dateStyle: 'long',
+		timeZone: 'UTC',
+	}).format(timestamp);
 }
 
 function looksLikeRss(xml: string): boolean {
