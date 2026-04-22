@@ -740,10 +740,14 @@ function renderHomePage(state: FeedFormState, requestUrl: string, hasExplicitWee
 			}
 
 			function extractEncodedConfig(url) {
-				const pathname = url.pathname.replace(/\/+$/, '');
-				const pathMatch = pathname.match(/^\/r\/([^/]+)\/(?:feed\.xml|listen|edit)$/);
-				if (pathMatch) {
-					return pathMatch[1];
+				const pathname = trimTrailingSlashes(url.pathname);
+				const segments = pathname.split('/').filter(Boolean);
+				if (
+					segments.length === 3 &&
+					segments[0] === 'r' &&
+					(segments[2] === 'feed.xml' || segments[2] === 'listen' || segments[2] === 'edit')
+				) {
+					return segments[1];
 				}
 
 				if (pathname === '/feed' || pathname === '/feed.xml' || pathname === '/listen') {
@@ -766,6 +770,14 @@ function renderHomePage(state: FeedFormState, requestUrl: string, hasExplicitWee
 				}
 
 				return null;
+			}
+
+			function trimTrailingSlashes(pathname) {
+				let end = pathname.length;
+				while (end > 1 && pathname[end - 1] === '/') {
+					end -= 1;
+				}
+				return pathname.slice(0, end);
 			}
 		</script>
 	</body>
