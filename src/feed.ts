@@ -417,7 +417,7 @@ function injectEpisodeNote(
 		const [, attrs = '', inner = ''] = match;
 		const replacementInner = injectIntoExistingContent(inner, noteText);
 		return {
-			block: block.replace(regex, `<${tagName}${attrs}>${replacementInner}</${tagName}>`),
+			block: block.replace(regex, () => `<${tagName}${attrs}>${replacementInner}</${tagName}>`),
 			changed: true,
 		};
 	}
@@ -456,7 +456,7 @@ function replaceOrInsertDateTag(
 
 		const [, attrs = '', inner = ''] = match;
 		const replacementValue = wrapContentLikeExisting(inner, value);
-		return block.replace(regex, `<${tagName}${attrs}>${replacementValue}</${tagName}>`);
+		return block.replace(regex, () => `<${tagName}${attrs}>${replacementValue}</${tagName}>`);
 	}
 
 	const snippet = `<${fallbackTagName}>${escapeXml(value)}</${fallbackTagName}>`;
@@ -478,7 +478,7 @@ function upsertTextTag(
 	const match = block.match(regex);
 	if (match) {
 		const [, attrs = '', inner = ''] = match;
-		return block.replace(regex, `<${tagName}${attrs}>${wrapContentLikeExisting(inner, value)}</${tagName}>`);
+		return block.replace(regex, () => `<${tagName}${attrs}>${wrapContentLikeExisting(inner, value)}</${tagName}>`);
 	}
 
 	const snippet = `<${tagName}>${escapeXml(value)}</${tagName}>`;
