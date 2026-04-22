@@ -22,11 +22,28 @@ export type ReplayFeedConfig = {
 	descriptionTemplate: string;
 };
 
+export type ReplayFeedConfigParams = {
+	source?: string;
+	startDate?: string;
+	cadenceCount?: string;
+	cadenceUnit?: string;
+	releaseWeekday?: string;
+	releaseTime?: string;
+	timeZone?: string;
+	titleTemplate?: string;
+	descriptionTemplate?: string;
+};
+
 export type ReplayFeedResult = {
 	contentType: string;
 	diagnostics: string[];
 	kind: FeedKind;
+	lastModified?: string;
 	xml: string;
+};
+
+type BuildReplayFeedOptions = {
+	feedUrl?: string;
 };
 
 type ParsedItem = {
@@ -70,14 +87,14 @@ const WEEKDAY_INDEX: Record<ReleaseWeekday, number> = {
 	saturday: 6,
 };
 
-export function parseReplayFeedConfig(query: Record<string, string | undefined>): ReplayFeedConfig {
-	const source = readUrlParam(query.source, 'source');
-	const startDate = readDateParam(query.startDate, 'startDate');
-	const cadenceCount = readPositiveInteger(query.cadenceCount ?? '1', 'cadenceCount');
-	const cadenceUnit = readCadenceUnit(query.cadenceUnit ?? 'weeks');
-	const releaseWeekday = readWeekday(query.releaseWeekday ?? 'monday');
-	const releaseTime = readTimeParam(query.releaseTime ?? '09:00', 'releaseTime');
-	const timeZone = readTimeZoneParam(query.timeZone ?? 'America/Los_Angeles');
+export function parseReplayFeedConfig(params: ReplayFeedConfigParams): ReplayFeedConfig {
+	const source = readUrlParam(params.source, 'source');
+	const startDate = readDateParam(params.startDate, 'startDate');
+	const cadenceCount = readPositiveInteger(params.cadenceCount ?? '1', 'cadenceCount');
+	const cadenceUnit = readCadenceUnit(params.cadenceUnit ?? 'weeks');
+	const releaseWeekday = readWeekday(params.releaseWeekday ?? 'monday');
+	const releaseTime = readTimeParam(params.releaseTime ?? '09:00', 'releaseTime');
+	const timeZone = readTimeZoneParam(params.timeZone ?? 'America/Los_Angeles');
 	return {
 		source,
 		startDate,
@@ -86,13 +103,74 @@ export function parseReplayFeedConfig(query: Record<string, string | undefined>)
 		releaseWeekday,
 		releaseTime,
 		timeZone,
-		titleTemplate: query.titleTemplate?.trim() || DEFAULT_TITLE_TEMPLATE,
-		descriptionTemplate: query.descriptionTemplate?.trim() || DEFAULT_DESCRIPTION_TEMPLATE,
+		titleTemplate: params.titleTemplate?.trim() || DEFAULT_TITLE_TEMPLATE,
+		descriptionTemplate: params.descriptionTemplate?.trim() || DEFAULT_DESCRIPTION_TEMPLATE,
+	};
+}
+
+export function encodeReplayFeedConfig(params: ReplayFeedConfigParams): string {
+	const normalized = Object.fromEntries(
+		Object.entries(params).filter(([, value]) => value !== undefined && value !== ''),
+	);
+	return encodeBase64Url(JSON.stringify(normalized));
+}
+
+export function decodeReplayFeedConfig(encoded: string): ReplayFeedConfigParams {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(decodeBase64Url(encoded));
+	} catch {
+		throw new Error('Invalid rewind feed URL.');
+	}
+
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+		throw new Error('Invalid rewind feed URL.');
+	}
+
+	const raw = parsed as Record<string, unknown>;
+	const result: ReplayFeedConfigParams = {};
+	for (const key of [
+		'source',
+		'startDate',
+		'cadenceCount',
+		'cadenceUnit',
+		'releaseWeekday',
+		'releaseTime',
+		'timeZone',
+		'titleTemplate',
+		'descriptionTemplate',
+	] satisfies Array<keyof ReplayFeedConfigParams>) {
+		const value = raw[key];
+		if (value === undefined) {
+			continue;
+		}
+		if (typeof value !== 'string') {
+			throw new Error('Invalid rewind feed URL.');
+		}
+		result[key] = value;
+	}
+
+	return result;
+}
+
+export function replayFeedConfigToParams(config: ReplayFeedConfig): ReplayFeedConfigParams {
+	return {
+		source: config.source,
+		startDate: config.startDate,
+		cadenceCount: String(config.cadenceCount),
+		cadenceUnit: config.cadenceUnit,
+		releaseWeekday: config.releaseWeekday,
+		releaseTime: config.releaseTime,
+		timeZone: config.timeZone,
+		titleTemplate: config.titleTemplate === DEFAULT_TITLE_TEMPLATE ? undefined : config.titleTemplate,
+		descriptionTemplate:
+			config.descriptionTemplate === DEFAULT_DESCRIPTION_TEMPLATE ? undefined : config.descriptionTemplate,
 	};
 }
 
 export async function buildReplayFeed(
 	config: ReplayFeedConfig,
+	options: BuildReplayFeedOptions = {},
 	now: Date = new Date(),
 ): Promise<ReplayFeedResult> {
 	const response = await fetch(config.source, {
@@ -115,7 +193,7 @@ export async function buildReplayFeed(
 			contentType: RSS_CONTENT_TYPE,
 			diagnostics,
 			kind: 'rss',
-			xml: rewriteRssFeed(xml, config, now, diagnostics),
+			...rewriteRssFeed(xml, config, now, diagnostics, options.feedUrl),
 		};
 	}
 
@@ -124,7 +202,7 @@ export async function buildReplayFeed(
 			contentType: ATOM_CONTENT_TYPE,
 			diagnostics,
 			kind: 'atom',
-			xml: rewriteAtomFeed(xml, config, now, diagnostics),
+			...rewriteAtomFeed(xml, config, now, diagnostics, options.feedUrl),
 		};
 	}
 
@@ -136,7 +214,8 @@ function rewriteRssFeed(
 	config: ReplayFeedConfig,
 	now: Date,
 	diagnostics: string[],
-): string {
+	feedUrl?: string,
+): Pick<ReplayFeedResult, 'lastModified' | 'xml'> {
 	const channelMatch = xml.match(/(<channel\b[^>]*>)([\s\S]*?)(<\/channel>)/i);
 	if (!channelMatch || channelMatch.index === undefined) {
 		throw new Error('Invalid RSS feed: missing <channel>.');
@@ -158,11 +237,14 @@ function rewriteRssFeed(
 		now,
 		diagnostics,
 	);
-	const rewrittenHead = rewriteRssChannelMetadata(channelHead, config);
+	const rewrittenHead = rewriteRssChannelMetadata(channelHead, config, scheduledItems, feedUrl);
 	const rewrittenTail = rebuildFeedBody(channelTail, tailItemMatches, scheduledItems, rewriteRssItem, diagnostics);
 	const rewrittenChannel = `${channelOpen}${rewrittenHead}${rewrittenTail}${channelClose}`;
-
-	return `${xml.slice(0, channelMatch.index)}${rewrittenChannel}${xml.slice(channelMatch.index + fullChannel.length)}`;
+	const rewrittenXml = `${xml.slice(0, channelMatch.index)}${rewrittenChannel}${xml.slice(channelMatch.index + fullChannel.length)}`;
+	return {
+		lastModified: scheduledItems.find((item) => item.shouldInclude)?.replayDateText,
+		xml: ensureXmlDeclaration(ensureRssSelfLink(rewrittenXml, feedUrl)),
+	};
 }
 
 function rewriteAtomFeed(
@@ -170,7 +252,8 @@ function rewriteAtomFeed(
 	config: ReplayFeedConfig,
 	now: Date,
 	diagnostics: string[],
-): string {
+	feedUrl?: string,
+): Pick<ReplayFeedResult, 'lastModified' | 'xml'> {
 	const feedMatch = xml.match(/(<feed\b[^>]*>)([\s\S]*?)(<\/feed>)/i);
 	if (!feedMatch || feedMatch.index === undefined) {
 		throw new Error('Invalid Atom feed: missing <feed>.');
@@ -192,11 +275,14 @@ function rewriteAtomFeed(
 		now,
 		diagnostics,
 	);
-	const rewrittenHead = rewriteAtomChannelMetadata(feedHead, config);
+	const rewrittenHead = rewriteAtomChannelMetadata(feedHead, config, scheduledItems, feedUrl);
 	const rewrittenTail = rebuildFeedBody(feedTail, tailEntryMatches, scheduledItems, rewriteAtomEntry, diagnostics);
 	const rewrittenFeed = `${feedOpen}${rewrittenHead}${rewrittenTail}${feedClose}`;
-
-	return `${xml.slice(0, feedMatch.index)}${rewrittenFeed}${xml.slice(feedMatch.index + fullFeed.length)}`;
+	const rewrittenXml = `${xml.slice(0, feedMatch.index)}${rewrittenFeed}${xml.slice(feedMatch.index + fullFeed.length)}`;
+	return {
+		lastModified: scheduledItems.find((item) => item.shouldInclude)?.replayDateText,
+		xml: ensureXmlDeclaration(ensureAtomSelfLink(rewrittenXml, feedUrl)),
+	};
 }
 
 function scheduleItems(
@@ -275,12 +361,18 @@ function rebuildFeedBody(
 	return `${rebuilt}${body.slice(cursor)}`;
 }
 
-function rewriteRssChannelMetadata(head: string, config: ReplayFeedConfig): string {
+function rewriteRssChannelMetadata(
+	head: string,
+	config: ReplayFeedConfig,
+	scheduledItems: ScheduledItem[],
+	feedUrl?: string,
+): string {
 	const originalTitle = extractFirstTagText(head, ['title']) ?? 'Podcast';
 	const originalDescription = extractFirstTagText(head, ['description']) ?? '';
 	const context = buildTemplateContext(config, originalTitle, originalDescription);
 	const nextTitle = applyTemplate(config.titleTemplate, context) || originalTitle;
 	const nextDescription = applyTemplate(config.descriptionTemplate, context) || originalDescription;
+	const latestVisibleItem = scheduledItems.find((item) => item.shouldInclude);
 
 	let rewritten = upsertTextTag(head, 'title', nextTitle, {
 		afterTag: null,
@@ -290,15 +382,34 @@ function rewriteRssChannelMetadata(head: string, config: ReplayFeedConfig): stri
 		afterTag: 'title',
 		beforeFirstItem: true,
 	});
+	if (latestVisibleItem) {
+		rewritten = upsertTextTag(rewritten, 'pubDate', latestVisibleItem.replayDateText, {
+			afterTag: 'link',
+			beforeFirstItem: true,
+		});
+		rewritten = upsertTextTag(rewritten, 'lastBuildDate', latestVisibleItem.replayDateText, {
+			afterTag: 'pubDate',
+			beforeFirstItem: true,
+		});
+	}
+	if (feedUrl) {
+		rewritten = upsertAtomSelfLink(rewritten, feedUrl);
+	}
 	return rewritten;
 }
 
-function rewriteAtomChannelMetadata(head: string, config: ReplayFeedConfig): string {
+function rewriteAtomChannelMetadata(
+	head: string,
+	config: ReplayFeedConfig,
+	scheduledItems: ScheduledItem[],
+	feedUrl?: string,
+): string {
 	const originalTitle = extractFirstTagText(head, ['title']) ?? 'Podcast';
 	const originalDescription = extractFirstTagText(head, ['subtitle']) ?? '';
 	const context = buildTemplateContext(config, originalTitle, originalDescription);
 	const nextTitle = applyTemplate(config.titleTemplate, context) || originalTitle;
 	const nextDescription = applyTemplate(config.descriptionTemplate, context) || originalDescription;
+	const latestVisibleItem = scheduledItems.find((item) => item.shouldInclude);
 
 	let rewritten = upsertTextTag(head, 'title', nextTitle, {
 		afterTag: null,
@@ -308,6 +419,15 @@ function rewriteAtomChannelMetadata(head: string, config: ReplayFeedConfig): str
 		afterTag: 'title',
 		beforeFirstItem: true,
 	});
+	if (latestVisibleItem) {
+		rewritten = upsertTextTag(rewritten, 'updated', formatAtomDate(latestVisibleItem.replayDateMs), {
+			afterTag: 'subtitle',
+			beforeFirstItem: true,
+		});
+	}
+	if (feedUrl) {
+		rewritten = upsertAtomSelfLink(rewritten, feedUrl);
+	}
 	return rewritten;
 }
 
@@ -520,6 +640,66 @@ function insertAfterOpeningTag(block: string, snippet: string): string {
 
 	const insertAt = openMatch[0].length;
 	return `${block.slice(0, insertAt)}\n${snippet}${block.slice(insertAt)}`;
+}
+
+function upsertAtomSelfLink(block: string, feedUrl: string): string {
+	const normalizedFeedUrl = escapeXml(feedUrl);
+	const atomSelfRegex =
+		/<atom:link\b[^>]*\brel=(["'])self\1[^>]*\/?>|<atom:link\b[^>]*\bhref=(["'])[^"']+\2[^>]*\brel=(["'])self\3[^>]*\/?>/i;
+	const selfLink = `<atom:link href="${normalizedFeedUrl}" rel="self" type="application/rss+xml" />`;
+	if (atomSelfRegex.test(block)) {
+		return block.replace(atomSelfRegex, selfLink);
+	}
+
+	return insertAfterOpeningTag(block, selfLink);
+}
+
+function ensureXmlDeclaration(xml: string): string {
+	if (/^\s*<\?xml\b/i.test(xml)) {
+		return xml;
+	}
+
+	return `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
+}
+
+function ensureRssSelfLink(xml: string, feedUrl?: string): string {
+	if (!feedUrl) {
+		return xml;
+	}
+
+	let nextXml = xml;
+	if (!/\bxmlns:atom="/i.test(nextXml)) {
+		nextXml = nextXml.replace(
+			/<rss\b([^>]*)>/i,
+			`<rss$1 xmlns:atom="http://www.w3.org/2005/Atom">`,
+		);
+	}
+	if (/<atom:link\b[^>]*\brel=(["'])self\1/i.test(nextXml)) {
+		return nextXml;
+	}
+
+	return nextXml.replace(
+		/<channel\b[^>]*>/i,
+		(match) =>
+			`${match}\n<atom:link href="${escapeXml(feedUrl)}" rel="self" type="application/rss+xml" />`,
+	);
+}
+
+function ensureAtomSelfLink(xml: string, feedUrl?: string): string {
+	if (!feedUrl) {
+		return xml;
+	}
+	if (/<link\b[^>]*\brel=(["'])self\1/i.test(xml)) {
+		return xml.replace(
+			/<link\b[^>]*\brel=(["'])self\1[^>]*\/?>/i,
+			`<link href="${escapeXml(feedUrl)}" rel="self" />`,
+		);
+	}
+
+	return xml.replace(
+		/<feed\b[^>]*>/i,
+		(match) => `${match}\n<link href="${escapeXml(feedUrl)}" rel="self" />`,
+	);
 }
 
 function extractFirstTagText(block: string, tagNames: string[]): string | null {
@@ -813,4 +993,22 @@ function escapeHtml(value: string): string {
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function encodeBase64Url(value: string): string {
+	const bytes = new TextEncoder().encode(value);
+	let binary = '';
+	const chunkSize = 0x8000;
+	for (let index = 0; index < bytes.length; index += chunkSize) {
+		binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+	}
+	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
+}
+
+function decodeBase64Url(value: string): string {
+	const base64 = value.replaceAll('-', '+').replaceAll('_', '/');
+	const padding = '='.repeat((4 - (base64.length % 4 || 4)) % 4);
+	const binary = atob(`${base64}${padding}`);
+	const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+	return new TextDecoder().decode(bytes);
 }

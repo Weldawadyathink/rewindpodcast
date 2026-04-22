@@ -1,6 +1,13 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import QRCode from 'qrcode';
-import { buildReplayFeed, parseReplayFeedConfig, type CadenceUnit } from './feed';
+import {
+	buildReplayFeed,
+	decodeReplayFeedConfig,
+	encodeReplayFeedConfig,
+	parseReplayFeedConfig,
+	type CadenceUnit,
+	type ReplayFeedConfigParams,
+} from './feed';
 import { PODCAST_APPS } from './podcast-apps';
 
 type FeedFormState = {
@@ -32,21 +39,21 @@ const defaultState: FeedFormState = {
 const app = new Hono<{ Bindings: Env }>();
 
 app.get('/', (c) => {
-	const requestUrl = new URL(c.req.url);
-	const state: FeedFormState = {
-		sourceUrl: requestUrl.searchParams.get('source') ?? defaultState.sourceUrl,
-		startDate: requestUrl.searchParams.get('startDate') ?? defaultState.startDate,
-		episodeNumber: '',
-		cadenceCount: requestUrl.searchParams.get('cadenceCount') ?? defaultState.cadenceCount,
-		cadenceUnit: (requestUrl.searchParams.get('cadenceUnit') as CadenceUnit | null) ?? defaultState.cadenceUnit,
-		releaseWeekday: requestUrl.searchParams.get('releaseWeekday') ?? defaultState.releaseWeekday,
-		releaseTime: requestUrl.searchParams.get('releaseTime') ?? defaultState.releaseTime,
-		timeZone: requestUrl.searchParams.get('timeZone') ?? defaultState.timeZone,
-		titleTemplate: requestUrl.searchParams.get('titleTemplate') ?? defaultState.titleTemplate,
-		descriptionTemplate: requestUrl.searchParams.get('descriptionTemplate') ?? defaultState.descriptionTemplate,
-	};
+	return c.html(renderHomePage(buildFeedFormState(fromLegacyQuery(c.req.query())), c.req.url, hasExplicitWeekday(c.req.query())));
+});
 
-	return c.html(renderHomePage(state, c.req.url));
+app.get('/r/:encoded/edit', (c) => {
+	try {
+		const encoded = c.req.param('encoded');
+		if (!encoded) {
+			throw new Error('Invalid rewind feed URL.');
+		}
+		const params = decodeReplayFeedConfig(encoded);
+		return c.html(renderHomePage(buildFeedFormState(params), c.req.url, hasExplicitWeekday(params)));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Invalid replay settings.';
+		return c.html(renderListenErrorPage(c.req.url, message), 400);
+	}
 });
 
 app.get('/healthz', (c) =>
@@ -58,11 +65,30 @@ app.get('/healthz', (c) =>
 );
 
 app.get('/listen', async (c) => {
+	const query = c.req.query();
+	if (query.source) {
+		return c.redirect(buildListenUrl(new URL(c.req.url), fromLegacyQuery(query)), 302);
+	}
+
 	try {
-		const config = parseReplayFeedConfig(c.req.query());
-		const feedUrl = buildFeedUrl(new URL(c.req.url), c.req.query());
+		throw new Error('Invalid rewind feed URL.');
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Invalid replay settings.';
+		return c.html(renderListenErrorPage(c.req.url, message), 400);
+	}
+});
+
+app.get('/r/:encoded/listen', async (c) => {
+	try {
+		const encoded = c.req.param('encoded');
+		if (!encoded) {
+			throw new Error('Invalid rewind feed URL.');
+		}
+		const params = decodeReplayFeedConfig(encoded);
+		const config = parseReplayFeedConfig(params);
+		const feedUrl = buildFeedUrl(new URL(c.req.url), encoded);
 		const qrCodeSvg = await buildQrCodeSvg(c.req.url);
-		return c.html(renderListenPage(c.req.url, config, feedUrl, qrCodeSvg));
+		return c.html(renderListenPage(c.req.url, config, feedUrl, qrCodeSvg, encoded));
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Invalid replay settings.';
 		return c.html(renderListenErrorPage(c.req.url, message), 400);
@@ -70,9 +96,61 @@ app.get('/listen', async (c) => {
 });
 
 app.get('/feed', async (c) => {
+	if (c.req.query().source) {
+		return handleLegacyFeedRequest(c, false);
+	}
+
+	return c.text('Missing feed configuration.', 400);
+});
+
+app.on('HEAD', '/feed', async (c) => {
+	if (c.req.query().source) {
+		return handleLegacyFeedRequest(c, true);
+	}
+
+	return new Response(null, { status: 400 });
+});
+
+app.get('/feed.xml', async (c) => {
+	if (c.req.query().source) {
+		return handleLegacyFeedRequest(c, false);
+	}
+
+	return c.text('Missing feed configuration.', 400);
+});
+
+app.on('HEAD', '/feed.xml', async (c) => {
+	if (c.req.query().source) {
+		return handleLegacyFeedRequest(c, true);
+	}
+
+	return new Response(null, { status: 400 });
+});
+
+app.get('/r/:encoded/feed.xml', async (c) => {
+	return handleFeedRequest(c, false);
+});
+
+app.on('HEAD', '/r/:encoded/feed.xml', async (c) => {
+	return handleFeedRequest(c, true);
+});
+
+export default app;
+
+async function handleFeedRequest(
+	c: Context<{ Bindings: Env }>,
+	headOnly: boolean,
+) {
 	try {
-		const config = parseReplayFeedConfig(c.req.query());
-		const result = await buildReplayFeed(config);
+		const encoded = c.req.param('encoded');
+		if (!encoded) {
+			throw new Error('Invalid rewind feed URL.');
+		}
+		const params = decodeReplayFeedConfig(encoded);
+		const config = parseReplayFeedConfig(params);
+		const result = await buildReplayFeed(config, {
+			feedUrl: buildFeedUrl(new URL(c.req.url), encoded),
+		});
 
 		for (const diagnostic of result.diagnostics) {
 			console.warn(
@@ -84,13 +162,34 @@ app.get('/feed', async (c) => {
 			);
 		}
 
-		c.header('cache-control', 'no-store, max-age=0');
-		return new Response(result.xml, {
-			headers: {
-				'cache-control': 'no-store, max-age=0',
-				'content-type': result.contentType,
-			},
+		const contentLength = new TextEncoder().encode(result.xml).byteLength.toString();
+		const lastModified = result.lastModified ?? new Date().toUTCString();
+		const etag = await createWeakEtag(result.xml);
+
+		const headers = new Headers({
+			'cache-control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=300',
+			'content-length': contentLength,
+			'content-type': result.contentType,
+			etag,
+			'last-modified': lastModified,
+			vary: 'accept-encoding',
+			'x-content-type-options': 'nosniff',
 		});
+
+		if (c.req.header('if-none-match') === etag) {
+			return new Response(null, {
+				status: 304,
+				headers,
+			});
+		}
+
+		if (headOnly) {
+			return new Response(null, {
+				headers,
+			});
+		}
+
+		return new Response(result.xml, { headers });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown feed generation error.';
 		console.error(
@@ -101,15 +200,39 @@ app.get('/feed', async (c) => {
 		);
 		return c.text(message, 400);
 	}
-});
+}
 
-export default app;
+async function handleLegacyFeedRequest(
+	c: Context<{ Bindings: Env }>,
+	headOnly: boolean,
+) {
+	const params = fromLegacyQuery(c.req.query());
+	const encoded = encodeReplayFeedConfig(params);
+	const canonicalUrl = buildFeedUrl(new URL(c.req.url), encoded);
+	const headers = new Headers({ location: canonicalUrl });
 
-function renderHomePage(state: FeedFormState, requestUrl: string): string {
+	if (headOnly) {
+		return new Response(null, {
+			status: 302,
+			headers,
+		});
+	}
+
+	return c.redirect(canonicalUrl, 302);
+}
+
+function renderHomePage(state: FeedFormState, requestUrl: string, hasExplicitWeekday: boolean): string {
 	const request = new URL(requestUrl);
 	const escapedState = JSON.stringify(state).replace(/</g, '\\u003c');
-	const hasExplicitWeekday = request.searchParams.has('releaseWeekday');
-	const exampleUrl = `${request.origin}/listen?source=${encodeURIComponent('https://feeds.relay.fm/rd.xml')}&startDate=2026-05-04&cadenceCount=1&cadenceUnit=weeks&releaseWeekday=monday&releaseTime=09:00&timeZone=America%2FLos_Angeles`;
+	const exampleUrl = buildListenUrl(request, {
+		source: 'https://feeds.relay.fm/rd.xml',
+		startDate: '2026-05-04',
+		cadenceCount: '1',
+		cadenceUnit: 'weeks',
+		releaseWeekday: 'monday',
+		releaseTime: '09:00',
+		timeZone: 'America/Los_Angeles',
+	});
 
 	return `<!doctype html>
 <html lang="en">
@@ -454,11 +577,34 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 					</div>
 				</section>
 			</div>
+
+			<section class="panel" style="margin-top: 24px;">
+				<h2 style="margin-top: 0;">Open an existing rewind feed</h2>
+				<p>
+					Paste a Rewind Podcast feed URL to inspect it and edit its settings. This works with the new path-based feed URLs and older query-parameter feed URLs.
+				</p>
+				<form id="import-form" style="margin-top: 14px;">
+					<label>
+						<span>Existing rewind feed URL</span>
+						<input
+							id="existingFeedUrl"
+							name="existingFeedUrl"
+							type="url"
+							placeholder="https://rewindpodcast.xyz/r/.../feed.xml"
+							required
+						/>
+					</label>
+					<button type="submit">Open Feed Settings</button>
+					<div id="import-status" class="output-note" style="min-height: 1.4em;"></div>
+				</form>
+			</section>
 		</main>
 		<script>
 			const initialState = ${escapedState};
 			const hasExplicitWeekday = ${JSON.stringify(hasExplicitWeekday)};
 			const form = document.getElementById('generator-form');
+			const importForm = document.getElementById('import-form');
+			const importStatus = document.getElementById('import-status');
 			const output = document.getElementById('output');
 			const startDateField = document.getElementById('startDate');
 			const releaseWeekdayField = document.getElementById('releaseWeekday');
@@ -504,25 +650,46 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 				}
 
 				const adjustedStartDate = calculateStartDate(startDate, releaseWeekday, cadenceCount, cadenceUnit, episodeNumber);
-				const url = new URL('/listen', window.location.origin);
-				url.searchParams.set('source', sourceUrl);
-				url.searchParams.set('startDate', adjustedStartDate);
-				url.searchParams.set('cadenceCount', String(cadenceCount));
-				url.searchParams.set('cadenceUnit', cadenceUnit);
-				url.searchParams.set('releaseWeekday', releaseWeekday);
-				url.searchParams.set('releaseTime', releaseTime);
-				url.searchParams.set('timeZone', timeZone);
-
-				if (titleTemplate) {
-					url.searchParams.set('titleTemplate', titleTemplate);
-				}
-
-				if (descriptionTemplate) {
-					url.searchParams.set('descriptionTemplate', descriptionTemplate);
-				}
+				const encoded = encodeConfigSegment({
+					source: sourceUrl,
+					startDate: adjustedStartDate,
+					cadenceCount: String(cadenceCount),
+					cadenceUnit,
+					releaseWeekday,
+					releaseTime,
+					timeZone,
+					titleTemplate,
+					descriptionTemplate,
+				});
+				const url = new URL('/r/' + encoded + '/listen', window.location.origin);
 
 				output.textContent = url.toString();
 				window.location.assign(url.toString());
+			});
+
+			importForm.addEventListener('submit', (event) => {
+				event.preventDefault();
+
+				const field = document.getElementById('existingFeedUrl');
+				const rawValue = field.value.trim();
+				if (!rawValue) {
+					importStatus.textContent = 'Paste a rewind feed URL first.';
+					return;
+				}
+
+				try {
+					const rewindUrl = new URL(rawValue);
+					const encoded = extractEncodedConfig(rewindUrl);
+					if (!encoded) {
+						importStatus.textContent = 'That URL does not look like a rewind feed.';
+						return;
+					}
+
+					const editUrl = new URL('/r/' + encoded + '/edit', window.location.origin);
+					window.location.assign(editUrl.toString());
+				} catch (error) {
+					importStatus.textContent = 'Paste a valid URL to continue.';
+				}
 			});
 
 			function calculateStartDate(startDate, releaseWeekday, cadenceCount, cadenceUnit, episodeNumber) {
@@ -559,6 +726,47 @@ function renderHomePage(state: FeedFormState, requestUrl: string): string {
 					releaseWeekdayField.value = weekday;
 				}
 			}
+
+			function encodeConfigSegment(config) {
+				const entries = Object.entries(config).filter(([, value]) => value !== undefined && value !== '');
+				const json = JSON.stringify(Object.fromEntries(entries));
+				const bytes = new TextEncoder().encode(json);
+				let binary = '';
+				const chunkSize = 0x8000;
+				for (let index = 0; index < bytes.length; index += chunkSize) {
+					binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+				}
+				return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
+			}
+
+			function extractEncodedConfig(url) {
+				const pathname = url.pathname.replace(/\/+$/, '');
+				const pathMatch = pathname.match(/^\/r\/([^/]+)\/(?:feed\.xml|listen|edit)$/);
+				if (pathMatch) {
+					return pathMatch[1];
+				}
+
+				if (pathname === '/feed' || pathname === '/feed.xml' || pathname === '/listen') {
+					const source = url.searchParams.get('source');
+					if (!source) {
+						return null;
+					}
+
+					return encodeConfigSegment({
+						source,
+						startDate: url.searchParams.get('startDate') ?? '',
+						cadenceCount: url.searchParams.get('cadenceCount') ?? '',
+						cadenceUnit: url.searchParams.get('cadenceUnit') ?? '',
+						releaseWeekday: url.searchParams.get('releaseWeekday') ?? '',
+						releaseTime: url.searchParams.get('releaseTime') ?? '',
+						timeZone: url.searchParams.get('timeZone') ?? '',
+						titleTemplate: url.searchParams.get('titleTemplate') ?? '',
+						descriptionTemplate: url.searchParams.get('descriptionTemplate') ?? '',
+					});
+				}
+
+				return null;
+			}
 		</script>
 	</body>
 </html>`;
@@ -568,14 +776,63 @@ function escapeHtml(value: string): string {
 	return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 
-function buildFeedUrl(requestUrl: URL, query: Record<string, string | undefined>): string {
-	const feedUrl = new URL('/feed', requestUrl.origin);
-	for (const [key, value] of Object.entries(query)) {
-		if (value) {
-			feedUrl.searchParams.set(key, value);
-		}
-	}
-	return feedUrl.toString();
+function buildFeedUrl(
+	requestUrl: URL,
+	encodedConfig: string,
+): string {
+	return new URL(`/r/${encodedConfig}/feed.xml`, requestUrl.origin).toString();
+}
+
+function buildListenUrl(requestUrl: URL, params: ReplayFeedConfigParams): string {
+	const encodedConfig = encodeReplayFeedConfig(params);
+	return new URL(`/r/${encodedConfig}/listen`, requestUrl.origin).toString();
+}
+
+function buildEditUrl(requestUrl: URL, encodedConfig: string): URL {
+	return new URL(`/r/${encodedConfig}/edit`, requestUrl.origin);
+}
+
+function buildFeedFormState(params: ReplayFeedConfigParams): FeedFormState {
+	return {
+		sourceUrl: params.source ?? defaultState.sourceUrl,
+		startDate: params.startDate ?? defaultState.startDate,
+		episodeNumber: '',
+		cadenceCount: params.cadenceCount ?? defaultState.cadenceCount,
+		cadenceUnit: (params.cadenceUnit as CadenceUnit | undefined) ?? defaultState.cadenceUnit,
+		releaseWeekday: params.releaseWeekday ?? defaultState.releaseWeekday,
+		releaseTime: params.releaseTime ?? defaultState.releaseTime,
+		timeZone: params.timeZone ?? defaultState.timeZone,
+		titleTemplate: params.titleTemplate ?? defaultState.titleTemplate,
+		descriptionTemplate: params.descriptionTemplate ?? defaultState.descriptionTemplate,
+	};
+}
+
+function fromLegacyQuery(query: Record<string, string | undefined>): ReplayFeedConfigParams {
+	return {
+		source: query.source,
+		startDate: query.startDate,
+		cadenceCount: query.cadenceCount,
+		cadenceUnit: query.cadenceUnit,
+		releaseWeekday: query.releaseWeekday,
+		releaseTime: query.releaseTime,
+		timeZone: query.timeZone,
+		titleTemplate: query.titleTemplate,
+		descriptionTemplate: query.descriptionTemplate,
+	};
+}
+
+function hasExplicitWeekday(params: ReplayFeedConfigParams): boolean {
+	return Boolean(params.releaseWeekday);
+}
+
+async function createWeakEtag(value: string): Promise<string> {
+	const bytes = new TextEncoder().encode(value);
+	const digest = await crypto.subtle.digest('SHA-256', bytes);
+	const hash = Array.from(new Uint8Array(digest))
+		.slice(0, 16)
+		.map((byte) => byte.toString(16).padStart(2, '0'))
+		.join('');
+	return `W/"${hash}"`;
 }
 
 function renderListenErrorPage(requestUrl: string, message: string): string {
@@ -626,6 +883,7 @@ function renderListenPage(
 	config: ReturnType<typeof parseReplayFeedConfig>,
 	feedUrl: string,
 	qrCodeSvg: string,
+	encodedConfig: string,
 ): string {
 	const appCards = PODCAST_APPS.map((app) => {
 		return `<a class="subscribe-badge" href="${escapeHtml(app.subscribeUrl(feedUrl))}">
@@ -634,16 +892,7 @@ function renderListenPage(
 		</a>`;
 	}).join('');
 
-	const backUrl = new URL('/', requestUrl);
-	backUrl.searchParams.set('source', config.source);
-	backUrl.searchParams.set('startDate', config.startDate);
-	backUrl.searchParams.set('cadenceCount', String(config.cadenceCount));
-	backUrl.searchParams.set('cadenceUnit', config.cadenceUnit);
-	backUrl.searchParams.set('releaseWeekday', config.releaseWeekday);
-	backUrl.searchParams.set('releaseTime', config.releaseTime);
-	backUrl.searchParams.set('timeZone', config.timeZone);
-	backUrl.searchParams.set('titleTemplate', config.titleTemplate);
-	backUrl.searchParams.set('descriptionTemplate', config.descriptionTemplate);
+	const backUrl = buildEditUrl(new URL(requestUrl), encodedConfig);
 
 	return `<!doctype html>
 <html lang="en">
