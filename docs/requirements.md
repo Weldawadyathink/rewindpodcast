@@ -20,7 +20,7 @@ The same Worker should also serve an approachable website for non-technical user
 ### Feed input
 
 - The Worker accepts a source feed URL.
-- The Worker accepts replay configuration through URL query parameters.
+- The Worker accepts replay configuration through a stateless encoded URL path.
 - The generated feed URL should be stable and self-contained so no database or user account is required.
 
 ### Scheduling
@@ -94,7 +94,7 @@ The same Worker should also serve an approachable website for non-technical user
 
 ## Initial Milestones
 
-1. Build a reliable query parameter contract and public URL format.
+1. Build a reliable stateless URL encoding contract and public URL format.
 2. Implement source feed fetch plus minimal XML-aware rewrite strategy.
 3. Implement schedule calculation and future-episode trimming.
 4. Add description note injection while preserving original markup.

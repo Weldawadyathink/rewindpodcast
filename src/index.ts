@@ -39,7 +39,7 @@ const defaultState: FeedFormState = {
 const app = new Hono<{ Bindings: Env }>();
 
 app.get('/', (c) => {
-	return c.html(renderHomePage(buildFeedFormState(fromLegacyQuery(c.req.query())), c.req.url, hasExplicitWeekday(c.req.query())));
+	return c.html(renderHomePage(defaultState, c.req.url, false));
 });
 
 app.get('/r/:encoded/edit', (c) => {
@@ -64,20 +64,6 @@ app.get('/healthz', (c) =>
 	}),
 );
 
-app.get('/listen', async (c) => {
-	const query = c.req.query();
-	if (query.source) {
-		return c.redirect(buildListenUrl(new URL(c.req.url), fromLegacyQuery(query)), 302);
-	}
-
-	try {
-		throw new Error('Invalid rewind feed URL.');
-	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Invalid replay settings.';
-		return c.html(renderListenErrorPage(c.req.url, message), 400);
-	}
-});
-
 app.get('/r/:encoded/listen', async (c) => {
 	try {
 		const encoded = c.req.param('encoded');
@@ -93,38 +79,6 @@ app.get('/r/:encoded/listen', async (c) => {
 		const message = error instanceof Error ? error.message : 'Invalid replay settings.';
 		return c.html(renderListenErrorPage(c.req.url, message), 400);
 	}
-});
-
-app.get('/feed', async (c) => {
-	if (c.req.query().source) {
-		return handleLegacyFeedRequest(c, false);
-	}
-
-	return c.text('Missing feed configuration.', 400);
-});
-
-app.on('HEAD', '/feed', async (c) => {
-	if (c.req.query().source) {
-		return handleLegacyFeedRequest(c, true);
-	}
-
-	return new Response(null, { status: 400 });
-});
-
-app.get('/feed.xml', async (c) => {
-	if (c.req.query().source) {
-		return handleLegacyFeedRequest(c, false);
-	}
-
-	return c.text('Missing feed configuration.', 400);
-});
-
-app.on('HEAD', '/feed.xml', async (c) => {
-	if (c.req.query().source) {
-		return handleLegacyFeedRequest(c, true);
-	}
-
-	return new Response(null, { status: 400 });
 });
 
 app.get('/r/:encoded/feed.xml', async (c) => {
@@ -200,25 +154,6 @@ async function handleFeedRequest(
 		);
 		return c.text(message, 400);
 	}
-}
-
-async function handleLegacyFeedRequest(
-	c: Context<{ Bindings: Env }>,
-	headOnly: boolean,
-) {
-	const params = fromLegacyQuery(c.req.query());
-	const encoded = encodeReplayFeedConfig(params);
-	const canonicalUrl = buildFeedUrl(new URL(c.req.url), encoded);
-	const headers = new Headers({ location: canonicalUrl });
-
-	if (headOnly) {
-		return new Response(null, {
-			status: 302,
-			headers,
-		});
-	}
-
-	return c.redirect(canonicalUrl, 302);
 }
 
 function renderHomePage(state: FeedFormState, requestUrl: string, hasExplicitWeekday: boolean): string {
@@ -581,7 +516,7 @@ function renderHomePage(state: FeedFormState, requestUrl: string, hasExplicitWee
 			<section class="panel" style="margin-top: 24px;">
 				<h2 style="margin-top: 0;">Open an existing rewind feed</h2>
 				<p>
-					Paste a Rewind Podcast feed URL to inspect it and edit its settings. This works with the new path-based feed URLs and older query-parameter feed URLs.
+					Paste a Rewind Podcast feed URL to inspect it and edit its settings.
 				</p>
 				<form id="import-form" style="margin-top: 14px;">
 					<label>
@@ -739,38 +674,19 @@ function renderHomePage(state: FeedFormState, requestUrl: string, hasExplicitWee
 				return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
 			}
 
-			function extractEncodedConfig(url) {
-				const pathname = trimTrailingSlashes(url.pathname);
-				const segments = pathname.split('/').filter(Boolean);
-				if (
-					segments.length === 3 &&
+				function extractEncodedConfig(url) {
+					const pathname = trimTrailingSlashes(url.pathname);
+					const segments = pathname.split('/').filter(Boolean);
+					if (
+						segments.length === 3 &&
 					segments[0] === 'r' &&
 					(segments[2] === 'feed.xml' || segments[2] === 'listen' || segments[2] === 'edit')
-				) {
-					return segments[1];
-				}
-
-				if (pathname === '/feed' || pathname === '/feed.xml' || pathname === '/listen') {
-					const source = url.searchParams.get('source');
-					if (!source) {
-						return null;
+					) {
+						return segments[1];
 					}
 
-					return encodeConfigSegment({
-						source,
-						startDate: url.searchParams.get('startDate') ?? '',
-						cadenceCount: url.searchParams.get('cadenceCount') ?? '',
-						cadenceUnit: url.searchParams.get('cadenceUnit') ?? '',
-						releaseWeekday: url.searchParams.get('releaseWeekday') ?? '',
-						releaseTime: url.searchParams.get('releaseTime') ?? '',
-						timeZone: url.searchParams.get('timeZone') ?? '',
-						titleTemplate: url.searchParams.get('titleTemplate') ?? '',
-						descriptionTemplate: url.searchParams.get('descriptionTemplate') ?? '',
-					});
+					return null;
 				}
-
-				return null;
-			}
 
 			function trimTrailingSlashes(pathname) {
 				let end = pathname.length;
@@ -816,20 +732,6 @@ function buildFeedFormState(params: ReplayFeedConfigParams): FeedFormState {
 		timeZone: params.timeZone ?? defaultState.timeZone,
 		titleTemplate: params.titleTemplate ?? defaultState.titleTemplate,
 		descriptionTemplate: params.descriptionTemplate ?? defaultState.descriptionTemplate,
-	};
-}
-
-function fromLegacyQuery(query: Record<string, string | undefined>): ReplayFeedConfigParams {
-	return {
-		source: query.source,
-		startDate: query.startDate,
-		cadenceCount: query.cadenceCount,
-		cadenceUnit: query.cadenceUnit,
-		releaseWeekday: query.releaseWeekday,
-		releaseTime: query.releaseTime,
-		timeZone: query.timeZone,
-		titleTemplate: query.titleTemplate,
-		descriptionTemplate: query.descriptionTemplate,
 	};
 }
 

@@ -911,18 +911,18 @@ function logDiagnostic(level: 'warn' | 'error', code: string, details: Record<st
 function readUrlParam(value: string | undefined, name: string): string {
 	const nextValue = value?.trim();
 	if (!nextValue) {
-		throw new Error(`Missing required query parameter "${name}".`);
+		throw new Error(`Missing required setting "${name}".`);
 	}
 
 	let parsed: URL;
 	try {
 		parsed = new URL(nextValue);
 	} catch {
-		throw new Error(`Query parameter "${name}" must be a valid URL.`);
+		throw new Error(`Setting "${name}" must be a valid URL.`);
 	}
 
 	if (!['http:', 'https:'].includes(parsed.protocol)) {
-		throw new Error(`Query parameter "${name}" must use http or https.`);
+		throw new Error(`Setting "${name}" must use http or https.`);
 	}
 
 	return parsed.toString();
@@ -931,7 +931,7 @@ function readUrlParam(value: string | undefined, name: string): string {
 function readDateParam(value: string | undefined, name: string): string {
 	const nextValue = value?.trim();
 	if (!nextValue || !/^\d{4}-\d{2}-\d{2}$/.test(nextValue)) {
-		throw new Error(`Query parameter "${name}" must use YYYY-MM-DD format.`);
+		throw new Error(`Setting "${name}" must use YYYY-MM-DD format.`);
 	}
 
 	return nextValue;
@@ -940,7 +940,7 @@ function readDateParam(value: string | undefined, name: string): string {
 function readPositiveInteger(value: string, name: string): number {
 	const parsed = Number.parseInt(value, 10);
 	if (!Number.isFinite(parsed) || parsed < 1) {
-		throw new Error(`Query parameter "${name}" must be a positive integer.`);
+		throw new Error(`Setting "${name}" must be a positive integer.`);
 	}
 	return parsed;
 }
@@ -949,24 +949,24 @@ function readCadenceUnit(value: string): CadenceUnit {
 	if (value === 'days' || value === 'weeks') {
 		return value;
 	}
-	throw new Error('Query parameter "cadenceUnit" must be "days" or "weeks".');
+	throw new Error('Setting "cadenceUnit" must be "days" or "weeks".');
 }
 
 function readWeekday(value: string): ReleaseWeekday {
 	if (value in WEEKDAY_INDEX) {
 		return value as ReleaseWeekday;
 	}
-	throw new Error('Query parameter "releaseWeekday" must be a weekday name.');
+	throw new Error('Setting "releaseWeekday" must be a weekday name.');
 }
 
 function readTimeParam(value: string, name: string): string {
 	if (!/^\d{2}:\d{2}$/.test(value)) {
-		throw new Error(`Query parameter "${name}" must use HH:MM format.`);
+		throw new Error(`Setting "${name}" must use HH:MM format.`);
 	}
 
 	const [hours, minutes] = value.split(':').map(Number);
 	if (hours > 23 || minutes > 59) {
-		throw new Error(`Query parameter "${name}" must use a valid 24-hour time.`);
+		throw new Error(`Setting "${name}" must use a valid 24-hour time.`);
 	}
 
 	return value;
@@ -977,7 +977,7 @@ function readTimeZoneParam(value: string): string {
 		new Intl.DateTimeFormat('en-US', { timeZone: value }).format();
 		return value;
 	} catch {
-		throw new Error('Query parameter "timeZone" must be a valid IANA time zone.');
+		throw new Error('Setting "timeZone" must be a valid IANA time zone.');
 	}
 }
 
