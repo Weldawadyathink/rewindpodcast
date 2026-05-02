@@ -1010,12 +1010,16 @@ function readDateParam(value: string | undefined, name: string): string {
 		throw new Error(`Setting "${name}" must use YYYY-MM-DD format.`);
 	}
 
+	if (formatIsoDate(parseIsoDate(nextValue)) !== nextValue) {
+		throw new Error(`Setting "${name}" must be a valid calendar date.`);
+	}
+
 	return nextValue;
 }
 
 function readPositiveInteger(value: string, name: string): number {
-	const parsed = Number.parseInt(value, 10);
-	if (!Number.isFinite(parsed) || parsed < 1) {
+	const parsed = Number(value.trim());
+	if (!Number.isInteger(parsed) || parsed < 1) {
 		throw new Error(`Setting "${name}" must be a positive integer.`);
 	}
 	return parsed;
