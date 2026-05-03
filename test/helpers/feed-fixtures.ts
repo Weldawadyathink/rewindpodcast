@@ -118,6 +118,12 @@ export const RSS_WITH_PLAIN_TEXT_CDATA = `
 </rss>
 `.trim();
 
+export const RSS_COMPACT_SOURCE_FEED =
+	'<rss version="2.0"><channel><title>Compact Podcast</title><description>Compact description.</description><item><title>Compact 1</title><description>Compact episode.</description><guid>compact-1</guid><pubDate>Mon, 03 Jan 2022 09:00:00 GMT</pubDate></item></channel></rss>';
+
+export const RSS_WITH_MINIMAL_CHANNEL_METADATA =
+	'<rss version="2.0"><channel><item><title>Minimal 1</title><guid>minimal-1</guid><pubDate>Mon, 03 Jan 2022 09:00:00 GMT</pubDate></item></channel></rss>';
+
 export const ATOM_SOURCE_FEED = `
 <?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">

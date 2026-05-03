@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+	RSS_COMPACT_SOURCE_FEED,
 	RSS_OLDEST_FIRST_SOURCE_FEED,
 	RSS_SOURCE_FEED,
 	RSS_WITH_MALFORMED_HTML_IN_CDATA,
+	RSS_WITH_MINIMAL_CHANNEL_METADATA,
 	RSS_WITH_MISSING_PUBLISH_DATE,
 } from './helpers/feed-fixtures';
 import {
@@ -110,6 +112,38 @@ describe('RSS feed rewriting', () => {
 		expect(result.xml).toContain('<title>Replay: Chronological Podcast</title>');
 		expect(result.xml).toContain(
 			'<description>Replay from 2026-05-05 for Chronological Podcast. Oldest episodes come first.</description>',
+		);
+		assertWellFormedXml(result.xml);
+	});
+
+	it('inserts missing channel freshness metadata in compact feeds', async () => {
+		const result = await buildFeedFromSource(RSS_COMPACT_SOURCE_FEED, {
+			now: new Date('2026-06-30T12:00:00.000Z'),
+		});
+
+		expect(result.xml).toContain('<title>Compact Podcast (Rewind)</title>');
+		expect(result.xml).toContain(
+			'<description>Replay feed for Compact Podcast. Episodes release every 1 weeks.\nCompact description.</description>',
+		);
+		expect(result.xml).toContain('<pubDate>Tue, 05 May 2026 09:00:00 GMT</pubDate>');
+		expect(result.xml).toContain('<lastBuildDate>Tue, 05 May 2026 09:00:00 GMT</lastBuildDate>');
+		expect(result.xml.indexOf('<lastBuildDate>')).toBeLessThan(result.xml.indexOf('<item>'));
+		assertWellFormedXml(result.xml);
+	});
+
+	it('adds common channel metadata when the source feed omits it', async () => {
+		const result = await buildFeedFromSource(RSS_WITH_MINIMAL_CHANNEL_METADATA, {
+			now: new Date('2026-06-30T12:00:00.000Z'),
+		});
+
+		expect(result.xml).toContain('<title>Podcast (Rewind)</title>');
+		expect(result.xml).toContain(
+			'<description>Replay feed for Podcast. Episodes release every 1 weeks.\n</description>',
+		);
+		expect(result.xml).toContain('<pubDate>Tue, 05 May 2026 09:00:00 GMT</pubDate>');
+		expect(result.xml).toContain('<lastBuildDate>Tue, 05 May 2026 09:00:00 GMT</lastBuildDate>');
+		expect(result.xml.indexOf('<title>Podcast (Rewind)</title>')).toBeLessThan(
+			result.xml.indexOf('<item>'),
 		);
 		assertWellFormedXml(result.xml);
 	});

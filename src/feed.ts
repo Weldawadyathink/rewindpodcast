@@ -613,6 +613,10 @@ function upsertTextTag(
 		}
 	}
 
+	if (options.beforeFirstItem) {
+		return insertIntoMetadataFragment(block, snippet, options.afterTag === null ? 'start' : 'end');
+	}
+
 	return insertAfterOpeningTag(block, snippet);
 }
 
@@ -643,6 +647,17 @@ function insertAfterOpeningTag(block: string, snippet: string): string {
 	}
 
 	const insertAt = openMatch[0].length;
+	return `${block.slice(0, insertAt)}\n${snippet}${block.slice(insertAt)}`;
+}
+
+function insertIntoMetadataFragment(block: string, snippet: string, position: 'start' | 'end'): string {
+	if (position === 'start') {
+		const leadingWhitespaceLength = block.match(/^\s*/)?.[0].length ?? 0;
+		return `${block.slice(0, leadingWhitespaceLength)}${snippet}\n${block.slice(leadingWhitespaceLength)}`;
+	}
+
+	const trailingWhitespaceLength = block.match(/\s*$/)?.[0].length ?? 0;
+	const insertAt = block.length - trailingWhitespaceLength;
 	return `${block.slice(0, insertAt)}\n${snippet}${block.slice(insertAt)}`;
 }
 
