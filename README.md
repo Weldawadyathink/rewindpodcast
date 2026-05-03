@@ -24,7 +24,9 @@ See [docs/requirements.md](./docs/requirements.md) for the working spec and open
 ## Main Routes
 
 - `/` renders the feed builder website
-- `/feed` returns the rewritten RSS or Atom feed
+- `/r/:encoded/feed.xml` returns the rewritten RSS or Atom feed
+- `/r/:encoded/listen` shows the replay details page for a generated feed URL
+- `/r/:encoded/edit` loads the builder with an existing encoded config
 - `/healthz` returns a small JSON health response
 
 ## Local Development
